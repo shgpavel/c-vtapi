@@ -17,8 +17,7 @@ limitations under the License.
 #ifndef VT_DOMAIN_H
 #define VT_DOMAIN_H 1
 
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -26,12 +25,11 @@ struct VtDomain;
 struct VtResponse;
 
 /**
-* @ingroup VtApiPage
-* @defgroup VtDomain VtDomain checking service
-* @{
-*/
-struct VtDomain* VtDomain_new(void);
-
+ * @ingroup VtApiPage
+ * @defgroup VtDomain VtDomain checking service
+ * @{
+ */
+struct VtDomain *VtDomain_new(void);
 
 /**
  * @brief Get a reference pointer
@@ -49,7 +47,6 @@ void VtDomain_get(struct VtDomain *obj);
  */
 void VtDomain_put(struct VtDomain **obj);
 
-
 /**
  * @brief Set API key
  *
@@ -65,7 +62,7 @@ void VtDomain_setApiKey(struct VtDomain *vt_domain, const char *api_key);
  * @param vt_domain ...
  * @return VtResponse*
  */
-struct VtResponse * VtDomain_getResponse(struct VtDomain *vt_domain);
+struct VtResponse *VtDomain_getResponse(struct VtDomain *vt_domain);
 
 /**
  * @brief get the report on a domain
@@ -77,10 +74,10 @@ struct VtResponse * VtDomain_getResponse(struct VtDomain *vt_domain);
 int VtDomain_report(struct VtDomain *vt_domain, const char *domain_name_str);
 
 /**
-*  @}
-*/
+ *  @}
+ */
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

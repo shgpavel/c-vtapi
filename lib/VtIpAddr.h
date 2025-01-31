@@ -17,7 +17,7 @@ limitations under the License.
 #ifndef VT_IP_ADDR_H
 #define VT_IP_ADDR_H 1
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -25,19 +25,17 @@ struct VtIpAddr;
 struct VtResponse;
 
 /**
-* @ingroup VtApiPage
-* @defgroup VtIpAddr  VtIpAddr object for getting reports on IP addresses.
-* @{
-*/
-
+ * @ingroup VtApiPage
+ * @defgroup VtIpAddr  VtIpAddr object for getting reports on IP addresses.
+ * @{
+ */
 
 /**
  * @brief Create new Object
  *
  * @return VtIpAddr object pointer. or null on erro
  */
-struct VtIpAddr* VtIpAddr_new(void);
-
+struct VtIpAddr *VtIpAddr_new(void);
 
 /**
  * @brief Get a reference counter
@@ -46,7 +44,6 @@ struct VtIpAddr* VtIpAddr_new(void);
  * @return void
  */
 void VtIpAddr_get(struct VtIpAddr *obj);
-
 
 /**
  * @brief Put a reference counter
@@ -65,15 +62,13 @@ void VtIpAddr_put(struct VtIpAddr **obj);
  */
 void VtIpAddr_setApiKey(struct VtIpAddr *vt_ip_addr, const char *api_key);
 
-
-
 /**
  * @brief Get the respose object
  *
  * @param vt_ip_addr VtIpAddr object
  * @return VtResponse*
  */
-struct VtResponse * VtIpAddr_getResponse(struct VtIpAddr *vt_ip_addr);
+struct VtResponse *VtIpAddr_getResponse(struct VtIpAddr *vt_ip_addr);
 
 /**
  * @brief Get the report on a IP address
@@ -84,12 +79,11 @@ struct VtResponse * VtIpAddr_getResponse(struct VtIpAddr *vt_ip_addr);
  */
 int VtIpAddr_report(struct VtIpAddr *vt_ip_addr, const char *ip_addr_str);
 
-
 /**
-*  @}
-*/
+ *  @}
+ */
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

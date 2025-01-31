@@ -17,7 +17,7 @@ limitations under the License.
 #ifndef VT_COMMENTS_H
 #define VT_COMMENTS_H 1
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -31,7 +31,7 @@ struct VtResponse;
  * @param  ...
  * @return VtComments* pointer to object, or NULL if error occurred
  */
-struct VtComments* VtComments_new(void);
+struct VtComments *VtComments_new(void);
 
 /**
  * @brief Get a reference counter.
@@ -40,7 +40,6 @@ struct VtComments* VtComments_new(void);
  * @return void
  */
 void VtComments_get(struct VtComments *vt_comments);
-
 
 /**
  * @brief Put a reference counter
@@ -58,7 +57,6 @@ void VtComments_put(struct VtComments **vt_comments);
  * @return void
  */
 void VtComments_setApiKey(struct VtComments *vt_comments, const char *api_key);
-
 
 /**
  * @brief Set the Datetime token.  Allows you to iterate over all comments
@@ -80,14 +78,13 @@ void VtComments_setBefore(struct VtComments *vt_comments, const char *value);
 
 int VtComments_setResource(struct VtComments *vt_comments, const char *value);
 
-
 /**
  * @brief Get the response object
  *
  * @param vt_comments comments object
  * @return VtResponse* response pointer or NULL with no response
  */
-struct VtResponse * VtComments_getResponse(struct VtComments *vt_comments);
+struct VtResponse *VtComments_getResponse(struct VtComments *vt_comments);
 
 /**
  * @brief Add a comment.   Must 1st set the resource and API key to use this.
@@ -98,7 +95,6 @@ struct VtResponse * VtComments_getResponse(struct VtComments *vt_comments);
  */
 int VtComments_add(struct VtComments *vt_comments, const char *comment);
 
-
 /**
  * @brief retrieve comments
  *
@@ -107,7 +103,7 @@ int VtComments_add(struct VtComments *vt_comments, const char *comment);
  */
 int VtComments_retrieve(struct VtComments *vt_comments);
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

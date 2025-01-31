@@ -1,0 +1,2 @@
+option('include-dir', type: 'string', value: 'lib',
+       description: 'Path to the include directory')

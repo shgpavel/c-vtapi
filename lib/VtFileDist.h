@@ -17,7 +17,7 @@ limitations under the License.
 #ifndef VT_FILE_DIST
 #define VT_FILE_DIST 1
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -25,18 +25,17 @@ struct VtResponse;
 struct VtFileDist;
 
 typedef void (*VtFileDistCb)(const char *url, unsigned long long timestamp,
-  const char *sha256hash, const char *name, json_t *raw_json, void *data);
-
+                             const char *sha256hash, const char *name,
+                             json_t *raw_json, void *data);
 
 /**
  * @ingroup VtApiPage
- * @defgroup VtFileDist VtFileDist File Distribution service.  Requires private-API with permissions
+ * @defgroup VtFileDist VtFileDist File Distribution service.  Requires
+ * private-API with permissions
  * @{
  */
 
-
-struct VtFileDist* VtFileDist_new(void);
-
+struct VtFileDist *VtFileDist_new(void);
 
 /**
  * @brief Get a reference counter
@@ -45,7 +44,6 @@ struct VtFileDist* VtFileDist_new(void);
  * @return void
  */
 void VtFileDist_get(struct VtFileDist *obj);
-
 
 /**
  * @brief Put a reference counter
@@ -73,15 +71,15 @@ void VtFileDist_setApiKey(struct VtFileDist *vt_dist, const char *api_key);
  */
 void VtFileDist_setReports(struct VtFileDist *vt_dist, bool value);
 
-
 /**
- * @brief Set the after time.  To recieve reports after X time. used to page over results
+ * @brief Set the after time.  To recieve reports after X time. used to page
+ * over results
  *
  * @param vt_dist VtFileDist object
  * @param value unixtime
  * @return void
  */
-void VtFileDist_setAfter(struct VtFileDist *vt_dist, unsigned long long  value);
+void VtFileDist_setAfter(struct VtFileDist *vt_dist, unsigned long long value);
 
 /**
  * @brief Set the before time parameter.
@@ -90,7 +88,7 @@ void VtFileDist_setAfter(struct VtFileDist *vt_dist, unsigned long long  value);
  * @param value  unixtime
  * @return void
  */
-void VtFileDist_setBefore(struct VtFileDist *vt_dist, unsigned long long  value);
+void VtFileDist_setBefore(struct VtFileDist *vt_dist, unsigned long long value);
 
 /**
  * @brief Set max limit of results to return
@@ -101,17 +99,17 @@ void VtFileDist_setBefore(struct VtFileDist *vt_dist, unsigned long long  value)
  */
 void VtFileDist_setLimit(struct VtFileDist *vt_dist, int value);
 
-
 /**
  * @brief Get response object
  *
  * @param vt_dist VtFileDist object
  * @return VtResponse*
  */
-struct VtResponse * VtFileDist_getResponse(struct VtFileDist *vt_dist);
+struct VtResponse *VtFileDist_getResponse(struct VtFileDist *vt_dist);
 
 /**
- * @brief Get the distrubution feed.  Then parse the results with VtFileDist_getResponse
+ * @brief Get the distrubution feed.  Then parse the results with
+ * VtFileDist_getResponse
  *
  * @param vt_dist VtFileDist object
  * @return int
@@ -120,21 +118,22 @@ struct VtResponse * VtFileDist_getResponse(struct VtFileDist *vt_dist);
 int VtFileDist_getDistribution(struct VtFileDist *vt_dist);
 
 /**
- * @brief Process file distribution.  Internally calls VtFileDist_getDistribution
+ * @brief Process file distribution.  Internally calls
+ * VtFileDist_getDistribution
  *
  * @param vt_dist VtFileDist object
  * @param VtFileDistCb callback function, called on every result
  * @param user_data user data passed to callback function
  * @return int 0 for OK, or error code
  */
-int VtFileDist_process(struct VtFileDist* vt_dist, VtFileDistCb, void *user_data);
+int VtFileDist_process(struct VtFileDist *vt_dist, VtFileDistCb,
+                       void *user_data);
 
 /**
  *  @}
  */
 
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

@@ -17,8 +17,7 @@ limitations under the License.
 #ifndef VT_DEBUG_H
 #define VT_DEBUG_H 1
 
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -30,7 +29,7 @@ extern "C" {
  */
 void VtDebug_setDebugLevel(int level);
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

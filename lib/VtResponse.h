@@ -17,28 +17,25 @@ limitations under the License.
 #ifndef VT_RESPONSE_H
 #define VT_RESPONSE_H 1
 
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
-* @ingroup VtObject
-* @defgroup VtResponse VtResponse object.  All API responses stored here.
-* @{
-*/
-
+ * @ingroup VtObject
+ * @defgroup VtResponse VtResponse object.  All API responses stored here.
+ * @{
+ */
 
 /// Flag to include debug info in JSON if necessary
-#define VT_JSON_FLAG_DEBUG   1 << 0
+#define VT_JSON_FLAG_DEBUG 1 << 0
 
 /// Indent JSON
-#define VT_JSON_FLAG_INDENT  1 << 1
+#define VT_JSON_FLAG_INDENT 1 << 1
 
 struct VtResponse;
 
-struct VtResponse* VtResponse_new(void);
-
+struct VtResponse *VtResponse_new(void);
 
 /**
  * @brief Get a reference counter.
@@ -47,7 +44,6 @@ struct VtResponse* VtResponse_new(void);
  * @return void
  */
 void VtResponse_get(struct VtResponse *VtResponse);
-
 
 /**
  * @brief put a reference counter
@@ -66,7 +62,8 @@ void VtResponse_put(struct VtResponse **VtResponse);
  * @return char*
  */
 
-char * VtResponse_getVerboseMsg(struct VtResponse *response, char *buf, int buf_siz);
+char *VtResponse_getVerboseMsg(struct VtResponse *response, char *buf,
+                               int buf_siz);
 
 /**
  * @brief Get the response code in the JSON response
@@ -81,12 +78,12 @@ int VtResponse_getResponseCode(struct VtResponse *response, int *response_code);
  * @brief Get the raw JSON response.   The caller must free the returned string
  *
  * @param response VtResponse object
- * @param flags  set to 0,  or VT_JSON_FLAG_INDENT  to indent the json  for a human to read
- * @return char*   NULL if no response.  The caller must free the returned pointer to avoid a leak.
+ * @param flags  set to 0,  or VT_JSON_FLAG_INDENT  to indent the json  for a
+ * human to read
+ * @return char*   NULL if no response.  The caller must free the returned
+ * pointer to avoid a leak.
  */
-char * VtResponse_toJSONstr(struct VtResponse *response, int flags);
-
-
+char *VtResponse_toJSONstr(struct VtResponse *response, int flags);
 
 /**
  * @brief Fill the response object from the JSON string
@@ -97,7 +94,6 @@ char * VtResponse_toJSONstr(struct VtResponse *response, int flags);
  */
 int VtResponse_fromJSONstr(struct VtResponse *response, const char *json_str);
 
-
 /**
  * @brief Get an integer key/value pair within the JSON response
  *
@@ -106,17 +102,18 @@ int VtResponse_fromJSONstr(struct VtResponse *response, const char *json_str);
  * @param value  integer value returned
  * @return int
  */
-int VtResponse_getIntValue(struct VtResponse *response, const char *key, int *value);
+int VtResponse_getIntValue(struct VtResponse *response, const char *key,
+                           int *value);
 
 /**
  * @brief Get a string key/value pair in the JSON response
  *
  * @param response VtResponse object
  * @param key key to read
- * @return char*  string returned.  user must free this pointer to avoid a leak. Will return NULL if not found.
+ * @return char*  string returned.  user must free this pointer to avoid a leak.
+ * Will return NULL if not found.
  */
 char *VtResponse_getString(struct VtResponse *response, const char *key);
-
 
 /**
  * @brief Get raw jansson response object
@@ -124,12 +121,11 @@ char *VtResponse_getString(struct VtResponse *response, const char *key);
  * @param response borrowed json_t pointer.
  * @return json_t*
  */
-json_t * VtResponse_getJanssonObj(struct VtResponse *response);
+json_t *VtResponse_getJanssonObj(struct VtResponse *response);
 
 /** @} */
 
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 

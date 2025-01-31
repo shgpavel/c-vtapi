@@ -17,7 +17,7 @@ limitations under the License.
 #ifndef VT_URL_H
 #define VT_URL_H 1
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -27,10 +27,10 @@ struct VtResponse;
 struct VtObject;
 
 /**
-* @ingroup VtApiPage
-* @defgroup VtUrl  VtUrl URL scanning object
-* @{
-*/
+ * @ingroup VtApiPage
+ * @defgroup VtUrl  VtUrl URL scanning object
+ * @{
+ */
 
 /**
  * @brief Create new URL object
@@ -38,7 +38,7 @@ struct VtObject;
  * @param  void
  * @return VtUrl*
  */
-struct VtUrl* VtUrl_new(void);
+struct VtUrl *VtUrl_new(void);
 
 /**
  * @brief Get a reference counter
@@ -48,7 +48,6 @@ struct VtUrl* VtUrl_new(void);
  */
 
 void VtUrl_get(struct VtUrl *);
-
 
 /**
  * @brief Put a reference counter
@@ -77,7 +76,6 @@ void VtUrl_setApiKey(struct VtUrl *url_scan, const char *api_key);
 
 int VtUrl_scan(struct VtUrl *, const char *url);
 
-
 /**
  * @brief get the report of the URL scan
  *
@@ -89,20 +87,19 @@ int VtUrl_scan(struct VtUrl *, const char *url);
  */
 int VtUrl_report(struct VtUrl *, const char *url, bool scan, bool all_info);
 
-
 /**
  * @brief Get response object
  *
  * @param url_scan VtUrl Object
  * @return VtResponse*
  */
-struct VtResponse * VtUrl_getResponse(struct VtUrl *url_scan);
+struct VtResponse *VtUrl_getResponse(struct VtUrl *url_scan);
 
 /**
-*  @}
-*/
+ *  @}
+ */
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif /*cplusplus*/
 
