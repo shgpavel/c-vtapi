@@ -1,0 +1,9 @@
+[wrap-git]
+directory = yyjson-0.12.0
+url = https://github.com/ibireme/yyjson.git
+revision = 0.12.0
+depth = 1
+method = cmake
+
+[provide]
+dependency_names = yyjson
