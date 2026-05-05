@@ -22,6 +22,15 @@ typedef struct vt_http_response vt_http_response;
  * @param response Response storage filled by the transport.
  * @param userdata Caller-provided transport data.
  * @return VT_OK on success, or a vt_status error code.
+ *
+ * @note The library zero-initializes @p response before invoking the
+ * transport. A custom transport that returns response data must allocate
+ * @c vt_http_response.body, @c content_type, @c retry_after, @c location, and
+ * @c link with @c malloc or an equivalent @c strdup allocation; the library
+ * releases those fields with @c vt_http_response_cleanup after consuming them.
+ *
+ * @note @c vt_http_response.body is a byte buffer, not a NUL-terminated
+ * string. Use @c vt_http_response.body_len for its length.
  */
 typedef vt_status (*vt_http_send_fn)(vt_client* client,
                                      const vt_http_request* request,

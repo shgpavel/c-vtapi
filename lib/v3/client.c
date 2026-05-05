@@ -201,7 +201,8 @@ vt_status vt_client_set_user_agent(vt_client* client, const char* user_agent) {
 
 vt_status vt_client_set_timeout_ms(vt_client* client, uint64_t timeout_ms) {
 	if (client == NULL) {
-		return VT_INVALID_ARG;
+		return vt_client_set_error(client, VT_INVALID_ARG,
+		                           "client is required");
 	}
 	if (timeout_ms > (uint64_t)LONG_MAX) {
 		return vt_client_set_error(client, VT_INVALID_ARG,
@@ -216,7 +217,8 @@ vt_status vt_client_set_timeout_ms(vt_client* client, uint64_t timeout_ms) {
 vt_status vt_client_set_transport(vt_client* client, vt_http_send_fn send,
                                   void* userdata) {
 	if (client == NULL) {
-		return VT_INVALID_ARG;
+		return vt_client_set_error(client, VT_INVALID_ARG,
+		                           "client is required");
 	}
 
 	client->transport_send = send;
@@ -228,7 +230,8 @@ vt_status vt_client_set_transport(vt_client* client, vt_http_send_fn send,
 vt_status vt_client_set_max_retries(vt_client* client,
                                     unsigned int max_retries) {
 	if (client == NULL) {
-		return VT_INVALID_ARG;
+		return vt_client_set_error(client, VT_INVALID_ARG,
+		                           "client is required");
 	}
 
 	client->max_retries = max_retries;
