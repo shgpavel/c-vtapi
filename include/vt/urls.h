@@ -35,6 +35,18 @@ extern "C" {
 [[nodiscard]] vt_status vt_urls_submit(vt_client* client, const char* url,
                                        vt_object** out_analysis);
 
+// TODO(architect-review): Resource brief requires URL re-analysis.
+/**
+ * @brief Request re-analysis of a URL object.
+ *
+ * @param client Client used to issue the request.
+ * @param url_id v3 URL id.
+ * @param out_analysis Receives the analysis object.
+ * @return VT_OK on success, or a vt_status error code.
+ */
+[[nodiscard]] vt_status vt_urls_analyse(vt_client* client, const char* url_id,
+                                        vt_object** out_analysis);
+
 /**
  * @brief List a relationship collection for a URL.
  *
@@ -50,6 +62,34 @@ extern "C" {
                                               const char* relationship,
                                               uint32_t limit,
                                               vt_iter** out_iter);
+
+// TODO(architect-review): Resource brief requires URL comments.
+/**
+ * @brief List comments for a URL object.
+ *
+ * @param client Client used to issue the request.
+ * @param url_id v3 URL id.
+ * @param limit Maximum number of comments per page, or 0 for API default.
+ * @param out_iter Receives an iterator for the comments collection.
+ * @return VT_OK on success, or a vt_status error code.
+ */
+[[nodiscard]] vt_status vt_urls_comments(vt_client* client, const char* url_id,
+                                         uint32_t limit, vt_iter** out_iter);
+
+// TODO(architect-review): Resource brief requires posting URL comments.
+/**
+ * @brief Add a comment to a URL object.
+ *
+ * @param client Client used to issue the request.
+ * @param url_id v3 URL id.
+ * @param text Comment body.
+ * @param out_comment Receives the created comment object.
+ * @return VT_OK on success, or a vt_status error code.
+ */
+[[nodiscard]] vt_status vt_urls_add_comment(vt_client* client,
+                                            const char* url_id,
+                                            const char* text,
+                                            vt_object** out_comment);
 
 #ifdef __cplusplus
 }

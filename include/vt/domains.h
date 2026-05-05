@@ -40,6 +40,35 @@ extern "C" {
                                                  uint32_t limit,
                                                  vt_iter** out_iter);
 
+// TODO(architect-review): Resource brief requires domain comments.
+/**
+ * @brief List comments for a domain.
+ *
+ * @param client Client used to issue the request.
+ * @param domain Domain name.
+ * @param limit Maximum number of comments per page, or 0 for API default.
+ * @param out_iter Receives an iterator for the comments collection.
+ * @return VT_OK on success, or a vt_status error code.
+ */
+[[nodiscard]] vt_status vt_domains_comments(vt_client* client,
+                                            const char* domain, uint32_t limit,
+                                            vt_iter** out_iter);
+
+// TODO(architect-review): Resource brief requires posting domain comments.
+/**
+ * @brief Add a comment to a domain.
+ *
+ * @param client Client used to issue the request.
+ * @param domain Domain name.
+ * @param text Comment body.
+ * @param out_comment Receives the created comment object.
+ * @return VT_OK on success, or a vt_status error code.
+ */
+[[nodiscard]] vt_status vt_domains_add_comment(vt_client* client,
+                                               const char* domain,
+                                               const char* text,
+                                               vt_object** out_comment);
+
 #ifdef __cplusplus
 }
 #endif
