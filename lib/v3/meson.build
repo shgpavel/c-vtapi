@@ -11,3 +11,5 @@ v3_sources = files(
     'object.c',
     'urls.c',
 )
+
+v3_json_smoke_sources = files('tests/json_smoke.c')
