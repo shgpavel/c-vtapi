@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <yyjson.h>
 
 #include "http.h"
 
@@ -35,256 +36,55 @@ static char* vt_iter_strdup(const char* value) {
 	return copy;
 }
 
-static const char* vt_iter_skip_ws(const char* ptr, const char* end) {
-	while (ptr < end &&
-	       (*ptr == ' ' || *ptr == '\n' || *ptr == '\r' || *ptr == '\t')) {
-		ptr++;
-	}
-	return ptr;
-}
-
-static const char* vt_iter_skip_string(const char* ptr, const char* end) {
-	if (ptr >= end || *ptr != '"') {
-		return ptr;
-	}
-
-	ptr++;
-	while (ptr < end) {
-		if (*ptr == '\\') {
-			ptr += ptr + 1 < end ? 2 : 1;
-		} else if (*ptr == '"') {
-			return ptr + 1;
-		} else {
-			ptr++;
-		}
-	}
-
-	return end;
-}
-
-static bool vt_iter_key_eq(const char* ptr, const char* end, const char* key,
-                           const char** out_after) {
-	if (ptr >= end || *ptr != '"') {
-		return false;
-	}
-
-	ptr++;
-	const char* key_ptr = key;
-	while (ptr < end) {
-		if (*ptr == '\\') {
-			return false;
-		}
-		if (*ptr == '"') {
-			if (*key_ptr == '\0') {
-				*out_after = ptr + 1;
-				return true;
-			}
-			return false;
-		}
-		if (*key_ptr == '\0' || *key_ptr != *ptr) {
-			return false;
-		}
-		key_ptr++;
-		ptr++;
-	}
-
-	return false;
-}
-
-static const char* vt_iter_find_object_end(const char* ptr, const char* end) {
-	if (ptr >= end || *ptr != '{') {
+static char* vt_iter_strdup_json_string(yyjson_val* value) {
+	if (!yyjson_is_str(value)) {
 		return NULL;
 	}
 
-	size_t depth = 0;
-	while (ptr < end) {
-		if (*ptr == '"') {
-			ptr = vt_iter_skip_string(ptr, end);
-			continue;
-		}
-		if (*ptr == '{') {
-			depth++;
-		} else if (*ptr == '}') {
-			depth--;
-			if (depth == 0) {
-				return ptr + 1;
-			}
-		}
-		ptr++;
+	const char* string = yyjson_get_str(value);
+	const size_t len = yyjson_get_len(value);
+	char* copy = malloc(len + 1);
+	if (copy == NULL) {
+		return NULL;
 	}
 
-	return NULL;
+	memcpy(copy, string, len);
+	copy[len] = '\0';
+	return copy;
 }
 
-static const char* vt_iter_skip_value(const char* ptr, const char* end) {
-	ptr = vt_iter_skip_ws(ptr, end);
-	if (ptr >= end) {
-		return end;
-	}
-	if (*ptr == '"') {
-		return vt_iter_skip_string(ptr, end);
-	}
-	if (*ptr != '{' && *ptr != '[') {
-		while (ptr < end && *ptr != ',' && *ptr != '}' && *ptr != ']') {
-			ptr++;
-		}
-		return ptr;
-	}
-
-	const char opener = *ptr;
-	const char closer = opener == '{' ? '}' : ']';
-	size_t depth = 0;
-	while (ptr < end) {
-		if (*ptr == '"') {
-			ptr = vt_iter_skip_string(ptr, end);
-			continue;
-		}
-		if (*ptr == opener) {
-			depth++;
-		} else if (*ptr == closer) {
-			depth--;
-			if (depth == 0) {
-				return ptr + 1;
-			}
-		}
-		ptr++;
-	}
-
-	return end;
+static yyjson_val* vt_iter_page_member(yyjson_val* root, const char* object_key,
+                                       const char* member_key) {
+	yyjson_val* object =
+	    yyjson_is_obj(root) ? yyjson_obj_get(root, object_key) : NULL;
+	return yyjson_is_obj(object) ? yyjson_obj_get(object, member_key) : NULL;
 }
 
-static const char* vt_iter_find_member_value(const char* start, const char* end,
-                                             const char* key) {
-	const char* ptr = vt_iter_skip_ws(start, end);
-	if (ptr < end && *ptr == '{') {
-		ptr++;
+static void vt_iter_extract_page_links(const vt_http_response* response,
+                                       char** out_next_url,
+                                       char** out_cursor) {
+	if (response == NULL || response->body == NULL || response->body_len == 0) {
+		return;
 	}
 
-	while (ptr < end) {
-		ptr = vt_iter_skip_ws(ptr, end);
-		if (ptr >= end) {
-			return NULL;
-		}
-		if (*ptr == ',') {
-			ptr++;
-			continue;
-		}
-		if (*ptr == '}') {
-			return NULL;
-		}
-		if (*ptr != '"') {
-			ptr = vt_iter_skip_value(ptr, end);
-			continue;
-		}
-
-		const char* after_key = NULL;
-		if (!vt_iter_key_eq(ptr, end, key, &after_key)) {
-			after_key = vt_iter_skip_string(ptr, end);
-			const char* colon = vt_iter_skip_ws(after_key, end);
-			if (colon < end && *colon == ':') {
-				ptr = vt_iter_skip_value(colon + 1, end);
-			} else {
-				ptr = after_key;
-			}
-			continue;
-		}
-
-		const char* colon = vt_iter_skip_ws(after_key, end);
-		if (colon < end && *colon == ':') {
-			return vt_iter_skip_ws(colon + 1, end);
-		}
-		ptr = vt_iter_skip_string(ptr, end);
+	yyjson_doc* doc = yyjson_read_opts((char*)response->body,
+	                                   response->body_len,
+	                                   YYJSON_READ_NOFLAG, NULL, NULL);
+	if (doc == NULL) {
+		return;
 	}
 
-	return NULL;
-}
-
-static char* vt_iter_parse_string(const char* ptr, const char* end) {
-	if (ptr >= end || *ptr != '"') {
-		return NULL;
+	yyjson_val* root = yyjson_doc_get_root(doc);
+	if (*out_next_url == NULL) {
+		*out_next_url = vt_iter_strdup_json_string(
+		    vt_iter_page_member(root, "links", "next"));
+	}
+	if (*out_cursor == NULL) {
+		*out_cursor = vt_iter_strdup_json_string(
+		    vt_iter_page_member(root, "meta", "cursor"));
 	}
 
-	ptr++;
-	char* out = malloc((size_t)(end - ptr) + 1);
-	if (out == NULL) {
-		return NULL;
-	}
-
-	size_t out_len = 0;
-	while (ptr < end) {
-		char c = *ptr++;
-		if (c == '"') {
-			out[out_len] = '\0';
-			return out;
-		}
-		if (c != '\\') {
-			out[out_len++] = c;
-			continue;
-		}
-		if (ptr >= end) {
-			break;
-		}
-
-		const char escaped = *ptr++;
-		switch (escaped) {
-			case '"':
-			case '\\':
-			case '/':
-				out[out_len++] = escaped;
-				break;
-			case 'b':
-				out[out_len++] = '\b';
-				break;
-			case 'f':
-				out[out_len++] = '\f';
-				break;
-			case 'n':
-				out[out_len++] = '\n';
-				break;
-			case 'r':
-				out[out_len++] = '\r';
-				break;
-			case 't':
-				out[out_len++] = '\t';
-				break;
-			case 'u':
-				if ((size_t)(end - ptr) >= 4) {
-					ptr += 4;
-					out[out_len++] = '?';
-				}
-				break;
-			default:
-				out[out_len++] = escaped;
-				break;
-		}
-	}
-
-	free(out);
-	return NULL;
-}
-
-static char* vt_iter_extract_object_string(const char* json, size_t json_len,
-                                           const char* object_key,
-                                           const char* member_key) {
-	if (json == NULL || json_len == 0) {
-		return NULL;
-	}
-
-	const char* start = json;
-	const char* end = json + json_len;
-	const char* object = vt_iter_find_member_value(start, end, object_key);
-	if (object == NULL || object >= end || *object != '{') {
-		return NULL;
-	}
-
-	const char* object_end = vt_iter_find_object_end(object, end);
-	if (object_end == NULL) {
-		return NULL;
-	}
-
-	const char* member =
-	    vt_iter_find_member_value(object + 1, object_end - 1, member_key);
-	return vt_iter_parse_string(member, object_end - 1);
+	yyjson_doc_free(doc);
 }
 
 static char* vt_iter_extract_cursor_from_url(const char* url) {
@@ -553,20 +353,7 @@ vt_status vt_iter_next(vt_iter* iter, vt_object** out_object) {
 		return VT_INVALID_ARG;
 	}
 
-	char* fallback_next = vt_iter_extract_object_string(
-	    response.body, response.body_len, "links", "next");
-	char* fallback_cursor = vt_iter_extract_object_string(
-	    response.body, response.body_len, "meta", "cursor");
-	if (next_url == NULL) {
-		next_url = fallback_next;
-		fallback_next = NULL;
-	}
-	if (cursor == NULL) {
-		cursor = fallback_cursor;
-		fallback_cursor = NULL;
-	}
-	free(fallback_next);
-	free(fallback_cursor);
+	vt_iter_extract_page_links(&response, &next_url, &cursor);
 
 	status = vt_iter_set_page(iter, objects, object_count, next_url, cursor,
 	                          request_url);
