@@ -314,14 +314,62 @@ static char* vt_iter_extract_cursor_from_url(const char* url) {
 	return copy;
 }
 
-static char* vt_iter_url_with_cursor(vt_client* client, const char* url,
-                                     const char* cursor) {
+static bool vt_iter_is_unreserved(unsigned char c) {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+	       (c >= '0' && c <= '9') || c == '-' || c == '.' ||
+	       c == '_' || c == '~';
+}
+
+static char* vt_iter_percent_encode(const char* value) {
+	static const char hex[] = "0123456789ABCDEF";
+
+	if (value == NULL) {
+		return NULL;
+	}
+
+	size_t encoded_len = 0;
+	for (const unsigned char* ptr = (const unsigned char*)value; *ptr != 0;
+	     ptr++) {
+		if (vt_iter_is_unreserved(*ptr)) {
+			if (encoded_len > SIZE_MAX - 2) {
+				return NULL;
+			}
+			encoded_len++;
+		} else {
+			if (encoded_len > SIZE_MAX - 4) {
+				return NULL;
+			}
+			encoded_len += 3;
+		}
+	}
+
+	char* encoded = malloc(encoded_len + 1);
+	if (encoded == NULL) {
+		return NULL;
+	}
+
+	char* out = encoded;
+	for (const unsigned char* ptr = (const unsigned char*)value; *ptr != 0;
+	     ptr++) {
+		if (vt_iter_is_unreserved(*ptr)) {
+			*out++ = (char)*ptr;
+		} else {
+			*out++ = '%';
+			*out++ = hex[*ptr >> 4];
+			*out++ = hex[*ptr & 0x0fU];
+		}
+	}
+	*out = '\0';
+	return encoded;
+}
+
+static char* vt_iter_url_with_cursor(const char* url, const char* cursor) {
 	char* copy = vt_iter_strdup(url);
 	if (copy == NULL) {
 		return NULL;
 	}
 
-	char* escaped = curl_easy_escape(client->easy, cursor, 0);
+	char* escaped = vt_iter_percent_encode(cursor);
 	if (escaped == NULL) {
 		free(copy);
 		return NULL;
@@ -334,21 +382,21 @@ static char* vt_iter_url_with_cursor(vt_client* client, const char* url,
 	const size_t cursor_len = strlen(escaped);
 	if (SIZE_MAX - lhs_len <= sep_len ||
 	    SIZE_MAX - lhs_len - sep_len <= cursor_len) {
-		curl_free(escaped);
+		free(escaped);
 		free(copy);
 		return NULL;
 	}
 
 	char* next = realloc(copy, lhs_len + sep_len + cursor_len + 1);
 	if (next == NULL) {
-		curl_free(escaped);
+		free(escaped);
 		free(copy);
 		return NULL;
 	}
 
 	memcpy(next + lhs_len, separator, sep_len);
 	memcpy(next + lhs_len + sep_len, escaped, cursor_len + 1);
-	curl_free(escaped);
+	free(escaped);
 	return next;
 }
 
@@ -385,8 +433,7 @@ static vt_status vt_iter_set_page(vt_iter* iter, vt_object** objects,
 		cursor = vt_iter_extract_cursor_from_url(next_url);
 	}
 	if (next_url == NULL && cursor != NULL) {
-		next_url =
-		    vt_iter_url_with_cursor(iter->client, request_url, cursor);
+		next_url = vt_iter_url_with_cursor(request_url, cursor);
 		if (next_url == NULL) {
 			free(cursor);
 			return VT_NOMEM;

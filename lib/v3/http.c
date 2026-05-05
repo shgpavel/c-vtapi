@@ -547,6 +547,8 @@ static vt_status vt_http_setup_common(
 	curl_easy_setopt(client->easy, CURLOPT_HTTPHEADER, *headers);
 	curl_easy_setopt(client->easy, CURLOPT_USERAGENT, client->user_agent);
 	curl_easy_setopt(client->easy, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(client->easy, CURLOPT_SSL_VERIFYPEER, 1L);
+	curl_easy_setopt(client->easy, CURLOPT_SSL_VERIFYHOST, 2L);
 	curl_easy_setopt(client->easy, CURLOPT_ERRORBUFFER, error_buffer);
 	curl_easy_setopt(client->easy, CURLOPT_WRITEFUNCTION,
 	                 vt_http_write_body);
