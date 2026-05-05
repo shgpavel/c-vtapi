@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <stddef.h>
-#include <vt/error.h>
+#include "http.h"
 
 const char* vt_status_str(vt_status status) {
 	switch (status) {
@@ -35,7 +34,28 @@ const char* vt_status_str(vt_status status) {
 }
 
 const char* vt_error_last(const vt_client* client) {
-	(void)client;
-	/* TODO: Return the last detailed client error. */
-	return NULL;
+	return client == NULL ? NULL : client->last_error;
+}
+
+vt_status vt_http_status_to_vt_status(long status_code) {
+	if (status_code >= 200 && status_code < 400) {
+		return VT_OK;
+	}
+	if (status_code == 0) {
+		return VT_NETWORK;
+	}
+	if (status_code == 401 || status_code == 403) {
+		return VT_AUTH;
+	}
+	if (status_code == 404) {
+		return VT_NOT_FOUND;
+	}
+	if (status_code == 429) {
+		return VT_RATE_LIMIT;
+	}
+	if (status_code >= 500 && status_code <= 599) {
+		return VT_SERVER;
+	}
+
+	return VT_UNKNOWN;
 }
