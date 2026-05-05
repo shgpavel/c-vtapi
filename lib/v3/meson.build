@@ -14,3 +14,4 @@ v3_sources = files(
 )
 
 v3_json_smoke_sources = files('tests/json_smoke.c')
+v3_parser_tests_sources = files('tests/parser_tests.c')

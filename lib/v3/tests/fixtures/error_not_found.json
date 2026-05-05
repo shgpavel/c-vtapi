@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "NotFoundError",
+    "message": "The requested object was not found."
+  }
+}

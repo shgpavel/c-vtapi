@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "id": "example.com",
+      "type": "domain",
+      "attributes": {
+        "reputation": 0
+      }
+    },
+    {
+      "id": "93.184.216.34",
+      "type": "ip_address",
+      "attributes": {
+        "country": "US"
+      }
+    }
+  ],
+  "meta": {
+    "cursor": "eyJsaW1pdCI6Miwib2Zmc2V0IjoyfQ"
+  },
+  "links": {
+    "next": "https://www.virustotal.com/api/v3/files/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/contacted_domains?cursor=eyJsaW1pdCI6Miwib2Zmc2V0IjoyfQ"
+  }
+}
