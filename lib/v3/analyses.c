@@ -10,6 +10,7 @@
 #include <vt/analyses.h>
 
 #include "http.h"
+#include "page.h"
 
 static bool is_empty(const char* value) {
 	return value == NULL || value[0] == '\0';
@@ -149,41 +150,6 @@ static char* with_limit(char* path, uint32_t limit) {
 	return limited;
 }
 
-static vt_status send_request(vt_client* client, vt_http_method method,
-                              const char* path, const void* body,
-                              size_t body_len) {
-	vt_http_request request = {
-	    .method = method,
-	    .path = path,
-	    .body = body,
-	    .body_len = body_len,
-	};
-	vt_http_response response = {0};
-
-	const vt_status status =
-	    vt_http_send_default(client, &request, &response);
-	free(response.body);
-	if (status != VT_OK) {
-		return status;
-	}
-
-	/* TODO(architect-review): Materialize vt_object/vt_iter from response.
-	 */
-	return VT_UNIMPL;
-}
-
-static vt_status send_path(vt_client* client, vt_http_method method, char* path,
-                           const void* body, size_t body_len) {
-	if (path == NULL) {
-		return VT_NOMEM;
-	}
-
-	const vt_status status =
-	    send_request(client, method, path, body, body_len);
-	free(path);
-	return status;
-}
-
 vt_status vt_analyses_get(vt_client* client, const char* analysis_id,
                           vt_object** out_analysis) {
 	if (out_analysis != NULL) {
@@ -193,8 +159,9 @@ vt_status vt_analyses_get(vt_client* client, const char* analysis_id,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, VT_HTTP_GET, object_path("analyses", analysis_id),
-	                 NULL, 0);
+	return vt_page_send_path_object(client, VT_HTTP_GET,
+	                                object_path("analyses", analysis_id),
+	                                NULL, 0, NULL, out_analysis);
 }
 
 vt_status vt_analyses_relationships(vt_client* client, const char* analysis_id,
@@ -208,9 +175,9 @@ vt_status vt_analyses_relationships(vt_client* client, const char* analysis_id,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(
-	    client, VT_HTTP_GET,
+	return vt_page_iter_from_path(
+	    client,
 	    with_limit(nested_path("analyses", analysis_id, relationship),
 	               limit),
-	    NULL, 0);
+	    out_iter);
 }

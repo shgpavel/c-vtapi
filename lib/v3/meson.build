@@ -9,6 +9,7 @@ v3_sources = files(
     'iter.c',
     'json.c',
     'object.c',
+    'page.c',
     'urls.c',
 )
 
