@@ -148,7 +148,7 @@ static char* with_limit(char* path, uint32_t limit) {
 	return limited;
 }
 
-static vt_status send_request(vt_client* client, const char* method,
+static vt_status send_request(vt_client* client, vt_http_method method,
                               const char* path, const void* body,
                               size_t body_len) {
 	vt_http_request request = {
@@ -171,7 +171,7 @@ static vt_status send_request(vt_client* client, const char* method,
 	return VT_UNIMPL;
 }
 
-static vt_status send_path(vt_client* client, const char* method, char* path,
+static vt_status send_path(vt_client* client, vt_http_method method, char* path,
                            const void* body, size_t body_len) {
 	if (path == NULL) {
 		return VT_NOMEM;
@@ -454,7 +454,7 @@ vt_status vt_files_get(vt_client* client, const char* file_id,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, "GET", object_path("files", file_id), NULL, 0);
+	return send_path(client, VT_HTTP_GET, object_path("files", file_id), NULL, 0);
 }
 
 vt_status vt_files_submit_path(vt_client* client, const char* path,
@@ -499,7 +499,7 @@ vt_status vt_files_submit_buffer(vt_client* client, const char* filename,
 	}
 
 	const vt_status send_status = send_path(
-	    client, "POST", checked_join("/", "files"), body, body_len);
+	    client, VT_HTTP_POST, checked_join("/", "files"), body, body_len);
 	free(body);
 	return send_status;
 }
@@ -512,7 +512,7 @@ vt_status vt_files_upload_url(vt_client* client, vt_object** out_upload_url) {
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, "GET", checked_join("/files/", "upload_url"),
+	return send_path(client, VT_HTTP_GET, checked_join("/files/", "upload_url"),
 	                 NULL, 0);
 }
 
@@ -525,7 +525,7 @@ vt_status vt_files_analyse(vt_client* client, const char* file_id,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, "POST",
+	return send_path(client, VT_HTTP_POST,
 	                 nested_path("files", file_id, "analyse"), NULL, 0);
 }
 
@@ -541,7 +541,7 @@ vt_status vt_files_relationships(vt_client* client, const char* file_id,
 	}
 
 	return send_path(
-	    client, "GET",
+	    client, VT_HTTP_GET,
 	    with_limit(nested_path("files", file_id, relationship), limit),
 	    NULL, 0);
 }
@@ -556,7 +556,7 @@ vt_status vt_files_comments(vt_client* client, const char* file_id,
 	}
 
 	return send_path(
-	    client, "GET",
+	    client, VT_HTTP_GET,
 	    with_limit(nested_path("files", file_id, "comments"), limit), NULL,
 	    0);
 }
@@ -577,7 +577,7 @@ vt_status vt_files_add_comment(vt_client* client, const char* file_id,
 	}
 
 	const vt_status status =
-	    send_path(client, "POST", nested_path("files", file_id, "comments"),
+	    send_path(client, VT_HTTP_POST, nested_path("files", file_id, "comments"),
 	              body, strlen(body));
 	free(body);
 	return status;

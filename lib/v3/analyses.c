@@ -149,7 +149,7 @@ static char* with_limit(char* path, uint32_t limit) {
 	return limited;
 }
 
-static vt_status send_request(vt_client* client, const char* method,
+static vt_status send_request(vt_client* client, vt_http_method method,
                               const char* path, const void* body,
                               size_t body_len) {
 	vt_http_request request = {
@@ -172,7 +172,7 @@ static vt_status send_request(vt_client* client, const char* method,
 	return VT_UNIMPL;
 }
 
-static vt_status send_path(vt_client* client, const char* method, char* path,
+static vt_status send_path(vt_client* client, vt_http_method method, char* path,
                            const void* body, size_t body_len) {
 	if (path == NULL) {
 		return VT_NOMEM;
@@ -193,7 +193,7 @@ vt_status vt_analyses_get(vt_client* client, const char* analysis_id,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, "GET", object_path("analyses", analysis_id),
+	return send_path(client, VT_HTTP_GET, object_path("analyses", analysis_id),
 	                 NULL, 0);
 }
 
@@ -209,7 +209,7 @@ vt_status vt_analyses_relationships(vt_client* client, const char* analysis_id,
 	}
 
 	return send_path(
-	    client, "GET",
+	    client, VT_HTTP_GET,
 	    with_limit(nested_path("analyses", analysis_id, relationship),
 	               limit),
 	    NULL, 0);

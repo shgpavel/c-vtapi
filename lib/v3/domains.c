@@ -149,7 +149,7 @@ static char* with_limit(char* path, uint32_t limit) {
 	return limited;
 }
 
-static vt_status send_request(vt_client* client, const char* method,
+static vt_status send_request(vt_client* client, vt_http_method method,
                               const char* path, const void* body,
                               size_t body_len) {
 	vt_http_request request = {
@@ -172,7 +172,7 @@ static vt_status send_request(vt_client* client, const char* method,
 	return VT_UNIMPL;
 }
 
-static vt_status send_path(vt_client* client, const char* method, char* path,
+static vt_status send_path(vt_client* client, vt_http_method method, char* path,
                            const void* body, size_t body_len) {
 	if (path == NULL) {
 		return VT_NOMEM;
@@ -311,7 +311,7 @@ vt_status vt_domains_get(vt_client* client, const char* domain,
 		return VT_INVALID_ARG;
 	}
 
-	return send_path(client, "GET", object_path("domains", domain), NULL,
+	return send_path(client, VT_HTTP_GET, object_path("domains", domain), NULL,
 	                 0);
 }
 
@@ -327,7 +327,7 @@ vt_status vt_domains_relationships(vt_client* client, const char* domain,
 	}
 
 	return send_path(
-	    client, "GET",
+	    client, VT_HTTP_GET,
 	    with_limit(nested_path("domains", domain, relationship), limit),
 	    NULL, 0);
 }
@@ -342,7 +342,7 @@ vt_status vt_domains_comments(vt_client* client, const char* domain,
 	}
 
 	return send_path(
-	    client, "GET",
+	    client, VT_HTTP_GET,
 	    with_limit(nested_path("domains", domain, "comments"), limit), NULL,
 	    0);
 }
@@ -363,7 +363,7 @@ vt_status vt_domains_add_comment(vt_client* client, const char* domain,
 	}
 
 	const vt_status status = send_path(
-	    client, "POST", nested_path("domains", domain, "comments"), body,
+	    client, VT_HTTP_POST, nested_path("domains", domain, "comments"), body,
 	    strlen(body));
 	free(body);
 	return status;
