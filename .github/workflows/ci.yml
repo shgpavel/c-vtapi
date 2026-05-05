@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      VTAPI_RUN_NETWORK_TESTS: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies on Ubuntu
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config libcurl4-openssl-dev libyyjson-dev
+
+      - name: Install dependencies on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install meson ninja pkg-config curl yyjson
+          echo "PKG_CONFIG_PATH=$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix yyjson)/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Configure
+        run: meson setup build -Dvt_v3=true -Dvt_v2_legacy=false -Dtests=true
+
+      - name: Build
+        run: meson compile -C build
+
+      - name: Test
+        run: meson test -C build --print-errorlogs
