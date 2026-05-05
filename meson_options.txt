@@ -1,2 +1,2 @@
 option('include-dir', type: 'string', value: 'lib',
-       description: 'Path to the include directory')
+       description: 'Path to the lib implementation')
