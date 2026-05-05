@@ -1,0 +1,27 @@
+{
+  "data": {
+    "id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "type": "file",
+    "attributes": {
+      "last_analysis_stats": {
+        "harmless": 48,
+        "malicious": 1,
+        "suspicious": 0,
+        "timeout": 0,
+        "undetected": 22
+      },
+      "size": 12345,
+      "type_description": "Win32 EXE"
+    },
+    "relationships": {
+      "comments": {
+        "data": []
+      },
+      "contacted_domains": {
+        "links": {
+          "related": "https://www.virustotal.com/api/v3/files/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/contacted_domains"
+        }
+      }
+    }
+  }
+}

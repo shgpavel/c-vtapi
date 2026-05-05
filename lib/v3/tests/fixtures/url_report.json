@@ -1,0 +1,27 @@
+{
+  "data": {
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "type": "url",
+    "attributes": {
+      "last_analysis_stats": {
+        "harmless": 64,
+        "malicious": 0,
+        "suspicious": 0,
+        "timeout": 0,
+        "undetected": 7
+      },
+      "last_final_url": "https://example.com/",
+      "last_http_response_code": 200,
+      "times_submitted": 3,
+      "url": "https://example.com/"
+    },
+    "relationships": {
+      "comments": {
+        "data": []
+      }
+    },
+    "links": {
+      "self": "https://www.virustotal.com/api/v3/urls/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}
