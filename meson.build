@@ -18,6 +18,7 @@ endif
 cflags = ['-Wall', '-Werror']
 curl_dep = dependency('libcurl')
 yyjson_dep = dependency('yyjson', fallback: ['yyjson', 'yyjson_dep'])
+threads_dep = dependency('threads')
 vt_include_dir = include_directories('include')
 
 subdir('lib/v3')
@@ -27,14 +28,14 @@ cvtapi_v3_lib = static_library(
     sources: v3_sources,
     c_args: cflags,
     include_directories: vt_include_dir,
-    dependencies: [curl_dep, yyjson_dep],
+    dependencies: [curl_dep, yyjson_dep, threads_dep],
     install: true,
 )
 
 cvtapi_v3_dep = declare_dependency(
     include_directories: vt_include_dir,
     link_with: cvtapi_v3_lib,
-    dependencies: [curl_dep, yyjson_dep],
+    dependencies: [curl_dep, yyjson_dep, threads_dep],
 )
 
 install_subdir('include/vt', install_dir: get_option('includedir'))

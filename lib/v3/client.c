@@ -9,7 +9,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if !defined(_WIN32)
+#include <pthread.h>
+#endif
+
 #include "http.h"
+
+#if !defined(_WIN32)
+static pthread_mutex_t vt_curl_global_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define VT_CURL_GLOBAL_LOCK() pthread_mutex_lock(&vt_curl_global_mutex)
+#define VT_CURL_GLOBAL_UNLOCK() pthread_mutex_unlock(&vt_curl_global_mutex)
+#else
+#define VT_CURL_GLOBAL_LOCK() ((void)0)
+#define VT_CURL_GLOBAL_UNLOCK() ((void)0)
+#endif
 
 static unsigned int vt_curl_global_refcount;
 
@@ -52,20 +65,25 @@ static char* vt_client_strdup_base_url(const char* value) {
 }
 
 static vt_status vt_curl_global_acquire(void) {
+	VT_CURL_GLOBAL_LOCK();
 	if (vt_curl_global_refcount == 0) {
 		const CURLcode curl_status =
 		    curl_global_init(CURL_GLOBAL_DEFAULT);
 		if (curl_status != CURLE_OK) {
+			VT_CURL_GLOBAL_UNLOCK();
 			return VT_NETWORK;
 		}
 	}
 
 	vt_curl_global_refcount++;
+	VT_CURL_GLOBAL_UNLOCK();
 	return VT_OK;
 }
 
 static void vt_curl_global_release(void) {
+	VT_CURL_GLOBAL_LOCK();
 	if (vt_curl_global_refcount == 0) {
+		VT_CURL_GLOBAL_UNLOCK();
 		return;
 	}
 
@@ -73,6 +91,7 @@ static void vt_curl_global_release(void) {
 	if (vt_curl_global_refcount == 0) {
 		curl_global_cleanup();
 	}
+	VT_CURL_GLOBAL_UNLOCK();
 }
 
 static char* vt_client_default_user_agent(void) {

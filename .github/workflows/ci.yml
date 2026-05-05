@@ -67,7 +67,7 @@ jobs:
           echo "PKG_CONFIG_PATH=$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix yyjson)/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "${GITHUB_ENV}"
 
       - name: Configure
-        run: meson setup build -Dvt_v3=true -Dvt_v2_legacy=false -Dtests=true
+        run: meson setup build
 
       - name: Build
         run: meson compile -C build
@@ -115,7 +115,7 @@ jobs:
           sudo chown -R "$USER:$(id -gn)" "${HOME}/.cache/apt/archives"
 
       - name: Configure
-        run: meson setup build_san -Db_sanitize=address,undefined -Dtests=true
+        run: meson setup build_san -Db_sanitize=address,undefined
 
       - name: Build
         run: meson compile -C build_san
@@ -161,7 +161,7 @@ jobs:
           sudo chown -R "$USER:$(id -gn)" "${HOME}/.cache/apt/archives"
 
       - name: Configure
-        run: meson setup build_tidy -Dtests=true
+        run: meson setup build_tidy
 
       - name: Build
         run: meson compile -C build_tidy
