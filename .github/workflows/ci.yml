@@ -21,11 +21,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache apt packages
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/apt/archives
+          key: ${{ runner.os }}-apt-build-meson-ninja-pkg-config-libcurl-yyjson-v1
+          restore-keys: |
+            ${{ runner.os }}-apt-build-
+
+      - name: Cache Homebrew downloads
+        if: runner.os == 'macOS'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: ${{ runner.os }}-brew-meson-ninja-pkg-config-curl-yyjson-v1
+          restore-keys: |
+            ${{ runner.os }}-brew-
+
+      - name: Cache Meson subprojects
+        uses: actions/cache@v4
+        with:
+          path: |
+            subprojects/packagecache
+            subprojects/yyjson-*
+          key: ${{ runner.os }}-meson-subprojects-${{ hashFiles('subprojects/*.wrap') }}
+          restore-keys: |
+            ${{ runner.os }}-meson-subprojects-
+
       - name: Install dependencies on Ubuntu
         if: runner.os == 'Linux'
         run: |
+          mkdir -p "${HOME}/.cache/apt/archives/partial"
           sudo apt-get update
-          sudo apt-get install -y meson ninja-build pkg-config libcurl4-openssl-dev libyyjson-dev
+          sudo apt-get \
+            -o Dir::Cache::archives="${HOME}/.cache/apt/archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            install -y meson ninja-build pkg-config libcurl4-openssl-dev libyyjson-dev
+          sudo chown -R "$USER:$(id -gn)" "${HOME}/.cache/apt/archives"
 
       - name: Install dependencies on macOS
         if: runner.os == 'macOS'
@@ -41,3 +74,100 @@ jobs:
 
       - name: Test
         run: meson test -C build --print-errorlogs
+
+  sanitizer:
+    runs-on: ubuntu-latest
+
+    env:
+      VTAPI_RUN_NETWORK_TESTS: "0"
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/apt/archives
+          key: ${{ runner.os }}-apt-sanitizer-meson-ninja-pkg-config-libcurl-yyjson-v1
+          restore-keys: |
+            ${{ runner.os }}-apt-sanitizer-
+
+      - name: Cache Meson subprojects
+        uses: actions/cache@v4
+        with:
+          path: |
+            subprojects/packagecache
+            subprojects/yyjson-*
+          key: ${{ runner.os }}-meson-subprojects-${{ hashFiles('subprojects/*.wrap') }}
+          restore-keys: |
+            ${{ runner.os }}-meson-subprojects-
+
+      - name: Install dependencies
+        run: |
+          mkdir -p "${HOME}/.cache/apt/archives/partial"
+          sudo apt-get update
+          sudo apt-get \
+            -o Dir::Cache::archives="${HOME}/.cache/apt/archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            install -y meson ninja-build pkg-config libcurl4-openssl-dev libyyjson-dev
+          sudo chown -R "$USER:$(id -gn)" "${HOME}/.cache/apt/archives"
+
+      - name: Configure
+        run: meson setup build_san -Db_sanitize=address,undefined -Dtests=true
+
+      - name: Build
+        run: meson compile -C build_san
+
+      - name: Test
+        run: meson test -C build_san --print-errorlogs
+
+  clang-tidy:
+    runs-on: ubuntu-latest
+
+    env:
+      VTAPI_RUN_NETWORK_TESTS: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/apt/archives
+          key: ${{ runner.os }}-apt-clang-tidy-clang-tidy-meson-ninja-pkg-config-libcurl-cmake-v1
+          restore-keys: |
+            ${{ runner.os }}-apt-clang-tidy-
+
+      - name: Cache Meson subprojects
+        uses: actions/cache@v4
+        with:
+          path: |
+            subprojects/packagecache
+            subprojects/yyjson-*
+          key: ${{ runner.os }}-meson-subprojects-${{ hashFiles('subprojects/*.wrap') }}
+          restore-keys: |
+            ${{ runner.os }}-meson-subprojects-
+
+      - name: Install dependencies
+        run: |
+          mkdir -p "${HOME}/.cache/apt/archives/partial"
+          sudo apt-get update
+          sudo apt-get \
+            -o Dir::Cache::archives="${HOME}/.cache/apt/archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            install -y clang-tidy meson ninja-build pkg-config cmake libcurl4-openssl-dev
+          sudo chown -R "$USER:$(id -gn)" "${HOME}/.cache/apt/archives"
+
+      - name: Configure
+        run: meson setup build_tidy -Dtests=true
+
+      - name: Build
+        run: meson compile -C build_tidy
+
+      - name: Link compile commands
+        run: ln -sf build_tidy/compile_commands.json .
+
+      - name: Run clang-tidy
+        run: clang-tidy -p build_tidy --warnings-as-errors='*' lib/v3/*.c

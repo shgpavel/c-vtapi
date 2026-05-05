@@ -1,0 +1,5 @@
+---
+Checks: '-*,bugprone-argument-comment,bugprone-assert-side-effect,bugprone-infinite-loop,bugprone-macro-parentheses,bugprone-macro-repeated-side-effects,bugprone-misplaced-widening-cast,bugprone-sizeof-expression,bugprone-suspicious-include,bugprone-suspicious-memset-usage,bugprone-suspicious-semicolon,bugprone-suspicious-string-compare,bugprone-swapped-arguments,readability-non-const-parameter'
+WarningsAsErrors: '*'
+FormatStyle: file
+...
