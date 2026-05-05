@@ -51,7 +51,7 @@ foreach example : v3_examples
     )
 endforeach
 
-if get_option('tests') and fs.is_dir('lib/v3/tests')
+if fs.is_dir('lib/v3/tests')
     v3_test_source_list = run_command(
         'find', 'lib/v3/tests', '-maxdepth', '1', '-type', 'f', '-name',
         '*.c', check: true).stdout().strip()
