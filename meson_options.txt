@@ -1,2 +1,8 @@
 option('include-dir', type: 'string', value: 'lib',
        description: 'Path to the lib implementation')
+option('vt_v3', type: 'boolean', value: true,
+       description: 'Build the VirusTotal API v3 client')
+option('vt_v2_legacy', type: 'boolean', value: true,
+       description: 'Build the legacy VirusTotal API v2 client and examples')
+option('tests', type: 'boolean', value: true,
+       description: 'Build and register available tests')
