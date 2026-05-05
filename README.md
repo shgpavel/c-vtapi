@@ -1,27 +1,32 @@
 # c-vtapi
 
-c-vtapi is a C client for the VirusTotal API v3. The migration keeps the legacy
-API v2 build available during the transition, while new code is built around the
-`vt_` namespace, C23, libcurl, and yyjson.
+c-vtapi is a C client for the VirusTotal API v3. It uses the `vt_` namespace,
+C23, libcurl, and yyjson.
 
 ## Build
 
-Install Meson, Ninja, pkg-config, libcurl, and yyjson, then build the v3 client:
+Install Meson, Ninja, pkg-config, libcurl, and yyjson, then build:
 
 ```sh
-meson setup build -Dvt_v3=true -Dvt_v2_legacy=false
-meson compile -C build
-meson test -C build
-meson install -C build
+meson setup build && meson compile -C build
 ```
 
-To keep the legacy v2 library and examples in the same build, leave
-`-Dvt_v2_legacy=true` enabled.
+Run the test suite with:
+
+```sh
+meson test -C build
+```
+
+Install with:
+
+```sh
+meson install -C build
+```
 
 ## Examples
 
 The v3 examples live under `users/v3/` and read the API key from `VTAPI_KEY`.
-When built with `-Dvt_v2_legacy=false`, Meson builds them as `vt3_*` binaries:
+Meson builds them as `vt3_*` binaries:
 
 ```sh
 export VTAPI_KEY=your-api-key
@@ -61,5 +66,3 @@ int main(void) {
         return 0;
 }
 ```
-
-See `MIGRATION.md` for the v2 to v3 migration status and coordination rules.
