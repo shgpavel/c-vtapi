@@ -14,124 +14,97 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include <getopt.h>
-#include <jansson.h>
-#include <stdbool.h>
+/* search: POST file/search, --repeat pages following the returned
+ * offset. */
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
-#include "VtFile.h"
-#include "VtResponse.h"
+#include "common.h"
 
-#define DBG(FMT, ARG...) \
-	fprintf(stderr, "%s:%d: " FMT, __FUNCTION__, __LINE__, ##ARG);
-
-void print_usage(const char *prog_name) {
+static void usage(const char *prog) {
 	printf(
-	    "%s < --apikey YOUR_API_KEY >  [ --query 'QUERY STRING' ] [ "
-	    "--offset X ]\n",
-	    prog_name);
-	printf(
-	    "  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st "
-	    "\n");
-	printf("  --query             'Query String'\n");
-	printf("  --offset             Offset Value\n");
+	    "%s < --apikey YOUR_API_KEY >  [ --query 'QUERY STRING' ] "
+	    "[ --offset X ]\n"
+	    "  --apikey YOUR_API_KEY   Your virus total API key.  This arg "
+	    "1st \n"
+	    "  --query             'Query String'\n"
+	    "  --offset             Offset Value\n",
+	    prog);
 }
 
-// Example data structure that can be passed to callback function
-struct CallbackData {
-	int counter;
+struct ctx {
+	struct vtc_tool t;
+	char *query, *offset;
+	int repeat;
 };
 
-void search_callback(const char *resource, void *data) {
-	struct CallbackData *cb_data = (struct CallbackData *)data;
+static enum vtc_act on_opt(int ch, const char *arg, void *ctxp) {
+	struct ctx *x = ctxp;
 
-	cb_data->counter++;
-	printf("------------- Result %d ----------------\n", cb_data->counter);
-	printf("resource: %s \n", resource);
-	printf("\n");
+	switch (ch) {
+		case 'q':
+			vtc_strset(&x->query, arg);
+			return VTC_NEXT;
+		case 'r':
+			x->repeat = atoi(arg);
+			return VTC_NEXT;
+		case 'o':
+			vtc_strset(&x->offset, arg);
+			return VTC_NEXT;
+		case 'h':
+			usage(x->t.prog);
+			return VTC_STOP;
+		default:
+			return VTC_UNKNOWN;
+	}
 }
 
-int main(int argc, char *const *argv) {
-	int c;
-	int ret = 0;
-	struct VtFile *file_scan;
-	struct CallbackData cb_data = {.counter = 0};
-	char *query = NULL;
-	int max_repeat = 1;
+int main(int argc, char *argv[]) {
+	static const struct option opts[] = {
+	    {"apikey", required_argument, nullptr, 'a'},
+	    {"query", required_argument, nullptr, 'q'},
+	    {"repeat", required_argument, nullptr, 'r'},
+	    {"offset", required_argument, nullptr, 'o'},
+	    {"verbose", optional_argument, nullptr, 'v'},
+	    {"help", optional_argument, nullptr, 'h'},
+	    {},
+	};
+	struct ctx x = {.repeat = 1};
+	int counter = 0;
 
-	if (argc < 2) {
-		print_usage(argv[0]);
-		return 0;
-	}
+	if (!vtc_start(&x.t, argc, argv, usage)) return 0;
+	if (vtc_getopt(&x.t, argc, argv, opts, on_opt, &x) >= 0) {
+		for (; x.repeat > 0; x.repeat--) {
+			json_t *resp, *h;
+			size_t i;
+			vt_err e;
 
-	file_scan = VtFile_new();
-
-	while (1) {
-		int option_index = 0;
-		static struct option long_options[] = {
-		    {"apikey", required_argument, 0, 'a'},
-		    {"query", required_argument, 0, 'q'},
-		    {"repeat", required_argument, 0, 'r'},
-		    {"offset", required_argument, 0, 'o'},
-		    {"verbose", optional_argument, 0, 'v'},
-		    {"help", optional_argument, 0, 'h'},
-		    {0, 0, 0, 0}};
-
-		c = getopt_long_only(argc, argv, "", long_options,
-		                     &option_index);
-		if (c == -1) break;
-
-		switch (c) {
-			case 'a':
-				VtFile_setApiKey(file_scan, optarg);
+			printf("Repeating %d times\n", x.repeat);
+			e = vt_file_search(x.t.c, x.query, x.offset, &resp);
+			if (e) {
+				printf("returned error %d\n",
+				       vtc_legacy(x.t.c, e));
 				break;
-			case 'q':
-				query = strdup(optarg);
-				break;
-			case 'r':
-				max_repeat = atoi(optarg);
-				break;
-			case 'h':
-				print_usage(argv[0]);
-				goto cleanup;
-			case 'o':
-				VtFile_setOffset(file_scan, optarg);
-				break;
-			case 'v':
-				printf(" verbose selected\n");
-				if (optarg)
-					printf(" verbose level %s \n", optarg);
-				break;
-			default:
+			}
+			/* the next page starts at the returned offset; none
+			 * means the next request sends no offset */
+			vtc_strset(&x.offset, vt_next_offset(resp));
+			json_array_foreach(json_object_get(resp, "hashes"), i,
+			                   h) {
+				if (!json_is_string(h)) continue;
 				printf(
-				    "?? getopt returned character code 0%o "
-				    "??\n",
-				    c);
-		}
-	}  // end while
-
-	if (optind < argc) {
-		printf("non-option ARGV-elements: ");
-		while (optind < argc) printf("%s ", argv[optind++]);
-		printf("\n");
-	}
-
-	for (; max_repeat > 0; max_repeat--) {
-		printf("Repeating %d times\n", max_repeat);
-		ret =
-		    VtFile_search(file_scan, query, search_callback, &cb_data);
-		if (ret) {
-			printf("returned error %d\n", ret);
-			break;
+				    "------------- Result %d "
+				    "----------------\n",
+				    ++counter);
+				printf("resource: %s \n", json_string_value(h));
+				printf("\n");
+			}
+			json_decref(resp);
 		}
 	}
-cleanup:
-
-	DBG("Cleanup\n");
-	VtFile_put(&file_scan);
-	if (query) free(query);
+	vt_client_free(x.t.c);
+	free(x.query);
+	free(x.offset);
 	return 0;
 }

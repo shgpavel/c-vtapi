@@ -14,129 +14,83 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include <getopt.h>
-#include <jansson.h>
-#include <stdbool.h>
+/* comments: POST comments/put, GET comments/get. */
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
-#include "VtComments.h"
-#include "VtResponse.h"
+#include "common.h"
 
-#define DBG(FMT, ARG...) \
-	fprintf(stderr, "%s:%d: " FMT, __FUNCTION__, __LINE__, ##ARG);
-
-void print_usage(const char *prog_name) {
+static void usage(const char *prog) {
 	printf(
-	    "%s < --apikey YOUR_API_KEY >  [ --resource ] [ --get ]  [ --put "
-	    "\"<comments>\" ] < --before YYYYMMDDHHSS >\n",
-	    prog_name);
-	printf(
-	    "  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st "
-	    "\n");
-	printf("  --resource              Hash your looking for\n");
-	printf("  --get                   Get commnets of resource\n");
-	printf("  --put 'comments'        'comments' to add to resource\n");
-	printf("  --before 'YYYYMMDDHHSS'  datetime token\n");
+	    "%s < --apikey YOUR_API_KEY >  [ --resource ] [ --get ]  "
+	    "[ --put \"<comments>\" ] < --before YYYYMMDDHHSS >\n"
+	    "  --apikey YOUR_API_KEY   Your virus total API key.  This arg "
+	    "1st \n"
+	    "  --resource              Hash your looking for\n"
+	    "  --get                   Get commnets of resource\n"
+	    "  --put 'comments'        'comments' to add to resource\n"
+	    "  --before 'YYYYMMDDHHSS'  datetime token\n",
+	    prog);
 }
 
-int main(int argc, char *const *argv) {
-	int c;
-	int ret = 0;
-	struct VtComments *comments;
-	struct VtResponse *response;
-	char *str = NULL;
-	char *api_key = NULL;
-	bool get = true;
+struct ctx {
+	struct vtc_tool t;
+	char *resource, *before;
+	bool get;
+};
 
-	if (argc < 2) {
-		print_usage(argv[0]);
-		return 0;
+static enum vtc_act on_opt(int ch, const char *arg, void *ctxp) {
+	struct ctx *x = ctxp;
+
+	switch (ch) {
+		case 'r':
+			printf(" resource: %s \n", arg);
+			vtc_strset(&x->resource, arg);
+			return VTC_NEXT;
+		case 'b':
+			printf(" before: %s \n", arg);
+			vtc_strset(&x->before, arg);
+			return VTC_NEXT;
+		case 'p': /* legacy: the result is ignored, nothing printed */
+			x->get = false;
+			(void)vt_comments_put(x->t.c, x->resource, arg,
+			                      nullptr);
+			return VTC_NEXT;
+		case 'h':
+			usage(x->t.prog);
+			return VTC_STOP;
+		default: /* includes 'g': --get never had a handler */
+			return VTC_UNKNOWN;
 	}
+}
 
-	comments = VtComments_new();
+int main(int argc, char *argv[]) {
+	static const struct option opts[] = {
+	    {"apikey", required_argument, nullptr, 'a'},
+	    {"before", required_argument, nullptr, 'b'},
+	    {"put", required_argument, nullptr, 'p'},
+	    {"resource", required_argument, nullptr, 'r'},
+	    {"get", no_argument, nullptr, 'g'},
+	    {"verbose", optional_argument, nullptr, 'v'},
+	    {"help", optional_argument, nullptr, 'h'},
+	    {},
+	};
+	struct ctx x = {.t.echo_key = true, .get = true};
+	int n;
 
-	while (1) {
-		int option_index = 0;
-		static struct option long_options[] = {
-		    {"apikey", required_argument, 0, 'a'},
-		    {"before", required_argument, 0, 'b'},
-		    {"put", required_argument, 0, 'p'},
-		    {"resource", required_argument, 0, 'r'},
-		    {"get", no_argument, 0, 'g'},
-		    {"verbose", optional_argument, 0, 'v'},
-		    {"help", optional_argument, 0, 'h'},
-		    {0, 0, 0, 0}};
+	if (!vtc_start(&x.t, argc, argv, usage)) return 0;
+	n = vtc_getopt(&x.t, argc, argv, opts, on_opt, &x);
+	/* legacy: non-option arguments skip the retrieval */
+	if (n == 0 && x.get) {
+		json_t *resp = nullptr;
+		vt_err e = vt_comments_get(x.t.c, x.resource, x.before, &resp);
 
-		c = getopt_long_only(argc, argv, "", long_options,
-		                     &option_index);
-		if (c == -1) break;
-
-		switch (c) {
-			case 'a':
-				api_key = strdup(optarg);
-				printf(" apikey: %s \n", optarg);
-				VtComments_setApiKey(comments, optarg);
-				break;
-			case 'r':
-				printf(" resource: %s \n", optarg);
-				VtComments_setResource(comments, optarg);
-				break;
-			case 'b':
-				printf(" before: %s \n", optarg);
-				VtComments_setBefore(comments, optarg);
-				break;
-			case 'h':
-				print_usage(argv[0]);
-				return 0;
-			case 'p':
-				get = false;
-				VtComments_add(comments, optarg);
-				break;
-			case 'v':
-				printf(" verbose selected\n");
-				if (optarg)
-					printf(" verbose level %s \n", optarg);
-				break;
-			default:
-				printf(
-				    "?? getopt returned character code 0%o "
-				    "??\n",
-				    c);
-		}
-	}  // end while
-
-	if (optind < argc) {
-		printf("non-option ARGV-elements: ");
-		while (optind < argc) printf("%s ", argv[optind++]);
-		printf("\n");
-		goto cleanup;
+		vtc_print_result(x.t.c, e, resp);
+		json_decref(resp);
 	}
-
-	if (get) {
-		ret = VtComments_retrieve(comments);
-
-		if (ret) {
-			printf("Error: %d \n", ret);
-		} else {
-			response = VtComments_getResponse(comments);
-			str =
-			    VtResponse_toJSONstr(response, VT_JSON_FLAG_INDENT);
-			if (str) {
-				printf("Response:\n%s\n", str);
-				free(str);
-			}
-			VtResponse_put(&response);
-		}
-	} else {
-		// comments put in optarg parsing
-	}
-
-cleanup:
-	DBG("Cleanup\n");
-	VtComments_put(&comments);
-	if (api_key) free(api_key);
+	vt_client_free(x.t.c);
+	free(x.resource);
+	free(x.before);
 	return 0;
 }

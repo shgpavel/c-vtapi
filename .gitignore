@@ -1,3 +1,4 @@
-build/*
-test/*
-.cache/*
+/build*/
+/.cache/
+/subprojects/packagecache/
+__pycache__/
