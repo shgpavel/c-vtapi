@@ -20,8 +20,8 @@ limitations under the License.
  * the rescan options, notify_url of the scans, vt_file_scan_big() on a
  * small file, the distribution before/after members, cancellation, per
  * call search offsets).  Like the tools it takes the base URL from
- * $VT_API_BASE_URL.  Only the HTTP requests matter to the tests; stdout
- * ("ret=<legacy code>" lines and Response dumps) is informational.
+ * $VT_API_BASE_URL.  It prints "ret=<legacy code>" lines and Response
+ * dumps, which the tests compare with golden files.
  *
  * Usage: vtprobe <cmd> KEY args...     ("-" means NULL for string args)
  *   rescan_delete KEY HASH               vt_file_rescan_delete
@@ -33,6 +33,10 @@ limitations under the License.
  *                       vt_file_scan_mem with the whole of DATAFILE;
  *                       FILENAME is only the name given to the library
  *   scan_bigfile KEY PATH                vt_file_scan_big
+ *   scan_bigfile_cancel_between KEY PATH
+ *                       vt_file_scan_big with a vt_cancel() issued by
+ *                       jansson's allocator while step 1's response is
+ *                       parsed (after its transfer, before the upload)
  *   upload_url KEY                       vt_file_upload_url, prints url=
  *   cancel_report KEY HASH1 HASH2
  *                       vt_cancel() on an idle client, then
@@ -43,6 +47,9 @@ limitations under the License.
  *                       response (none if it had none), else the literal
  *   file_dist KEY BEFORE AFTER REPORTS LIMIT N
  *                       N x vt_file_distribution on one query struct
+ *   file_dist_nested KEY HASH
+ *                       vt_file_distribution whose callback calls
+ *                       vt_file_report(HASH); prints the diagnostics after
  *   url_dist KEY BEFORE AFTER ALLINFO LIMIT N
  *                       N x vt_url_distribution on one query struct
  *   url_report KEY RESOURCE SCAN ALLINFO vt_url_report (flags 0/1)
@@ -80,6 +87,33 @@ static void ud_cb(const char *url, long long ts, long long total, long long pos,
 	       (unsigned long long)ts, (int)total, (int)pos);
 }
 
+struct nested {
+	vt_client *c;
+	const char *hash;
+};
+
+static void nested_cb(const char *url, long long ts, const char *sha,
+                      const char *name, json_t *item, void *ud) {
+	struct nested *x = ud;
+	vt_err e = vt_file_report(x->c, x->hash, nullptr);
+
+	(void)url, (void)ts, (void)sha, (void)name, (void)item;
+	printf("nested ret=%d\n", vtc_legacy(x->c, e));
+}
+
+/* scan_bigfile_cancel_between: the first jansson allocation after arming
+ * calls vt_cancel(). */
+static vt_client *cancel_client;
+static bool cancel_armed;
+
+static void *cancel_malloc(size_t n) {
+	if (cancel_armed) {
+		cancel_armed = false;
+		vt_cancel(cancel_client);
+	}
+	return malloc(n);
+}
+
 static unsigned char *slurp(const char *path, size_t *len) {
 	FILE *fp = fopen(path, "rb");
 	unsigned char *buf = nullptr;
@@ -102,10 +136,12 @@ static void usage(void) {
 	        "  scan KEY PATH NOTIFY\n"
 	        "  scan_membuf KEY FILENAME DATAFILE NOTIFY\n"
 	        "  scan_bigfile KEY PATH\n"
+	        "  scan_bigfile_cancel_between KEY PATH\n"
 	        "  upload_url KEY\n"
 	        "  cancel_report KEY HASH1 HASH2\n"
 	        "  search_seq KEY QUERY OFF1 [OFF2 ...]\n"
 	        "  file_dist KEY BEFORE AFTER REPORTS LIMIT N\n"
+	        "  file_dist_nested KEY HASH\n"
 	        "  url_dist KEY BEFORE AFTER ALLINFO LIMIT N\n"
 	        "  url_report KEY RESOURCE SCAN ALLINFO\n");
 }
@@ -195,6 +231,12 @@ int main(int argc, char *argv[]) {
 	} else if (!strcmp(cmd, "scan_bigfile") && n == 2) {
 		e = vt_file_scan_big(c, S(a[1]), &r);
 		result(c, e, &r);
+	} else if (!strcmp(cmd, "scan_bigfile_cancel_between") && n == 2) {
+		cancel_client = c;
+		cancel_armed = true; /* nothing was allocated by jansson yet */
+		json_set_alloc_funcs(cancel_malloc, free);
+		e = vt_file_scan_big(c, S(a[1]), &r);
+		result(c, e, &r);
 	} else if (!strcmp(cmd, "upload_url") && n == 1) {
 		char *url;
 
@@ -213,6 +255,12 @@ int main(int argc, char *argv[]) {
 	} else if ((!strcmp(cmd, "file_dist") || !strcmp(cmd, "url_dist")) &&
 	           n == 6) {
 		dist(c, cmd[0] == 'f', a + 1);
+	} else if (!strcmp(cmd, "file_dist_nested") && n == 2) {
+		struct nested x = {.c = c, .hash = a[1]};
+
+		e = vt_file_distribution(c, nullptr, nested_cb, &x, nullptr);
+		printf("ret=%d http=%ld curl=%d msg=%s\n", vtc_legacy(c, e),
+		       vt_http_status(c), vt_curl_code(c), vt_errmsg(c));
 	} else if (!strcmp(cmd, "url_report") && n == 4) {
 		unsigned f = (atoi(a[2]) ? VT_URL_REPORT_SCAN : 0u) |
 		             (atoi(a[3]) ? VT_URL_REPORT_ALL_INFO : 0u);

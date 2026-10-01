@@ -1,0 +1,22 @@
+ apikey: K1 
+ apikey: K2 
+Response:
+{
+    "response_code": 1
+}
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "second"
+}
+ verbose selected
+ verbose level 3 
+ verbose selected
+ip < --apikey YOUR_API_KEY >  < --report  1.2.3.4. --> 
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --report    get report for IP Adress
+  --verbose   be verbose
+  --help      print this help message
+?? getopt returned character code 077 ??
+?? getopt returned character code 077 ??
+non-option ARGV-elements: extra1 

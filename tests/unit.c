@@ -182,6 +182,8 @@ static void test_invalid_args(void) {
 	vt_client *c = vt_client_new(nullptr, "http://127.0.0.1:1/");
 	vt_client *k = vt_client_new("key", "http://127.0.0.1:1/");
 	struct vt_rescan_opts far = {.date = INT64_MAX};
+	/* 2147483648-01-01T00:00:00Z: gmtime_r copes, %Y would not */
+	struct vt_rescan_opts year = {.date = INT64_C(67767976233532800)};
 	char byte = 0;
 	json_t *out;
 	void *data;
@@ -209,7 +211,8 @@ static void test_invalid_args(void) {
 	INVAL(k, vt_file_scan_big(k, nullptr, &out));
 	INVAL(k, vt_file_scan_big(k, "", &out));
 	INVAL(k, vt_file_rescan(k, nullptr, nullptr, &out));
-	INVAL(k, vt_file_rescan(k, "h", &far, &out)); /* not a UTC time */
+	INVAL(k, vt_file_rescan(k, "h", &far, &out));  /* not a UTC time */
+	INVAL(k, vt_file_rescan(k, "h", &year, &out)); /* year > INT_MAX */
 	INVAL(k, vt_file_rescan_delete(k, nullptr, &out));
 	INVAL(k, vt_file_report(k, nullptr, &out));
 	INVAL(k, vt_file_search(k, nullptr, nullptr, &out));

@@ -1,0 +1,16 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1
+}
+Response:
+{
+    "response_code": 1
+}
+Response:
+[
+    1,
+    2
+]
+ verbose selected
+ verbose level 1 

@@ -1,0 +1,14 @@
+ apikey: TESTKEY 
+ resource: abc 
+Response:
+{
+    "response_code": 1,
+    "resource": "abc",
+    "comments": [
+        {
+            "date": "20140101120000",
+            "comment": "hi"
+        }
+    ],
+    "verbose_msg": "ok"
+}

@@ -4,9 +4,11 @@
 Each add(...) below is one scenario: a CLI tool (or the `vtprobe` library
 driver) with its argv / stdin / input files, the mock's canned responses,
 and the MODEL -- the exact list of HTTP requests a correct implementation
-sends (method, path, decoded query pairs, content type, form / multipart
-part names, filenames and content hashes) plus the files it creates in its
-working directory.  `note` documents why a model looks the way it does;
+sends (method, path, decoded query pairs, headers, content type, form /
+multipart part names, filenames, Content-Types and content hashes), the
+files it creates in its working directory and its exit status.  Its stdout
+is pinned by golden/<id>.stdout.  `note` documents why a model looks the
+way it does;
 "Dn" tags refer to the behaviour fixes of the 1.0 redesign (D1 file/scan
 upload body, D2 scanMemBuf buffer, D3 big-file upload body, D4 URL
 escaping, D5 url report flags, D7 cancel reset, D8 robustness, D9 search
@@ -14,9 +16,11 @@ offsets, D11 VT_API_BASE_URL).
 
     python3 gen_scenarios.py --out DIR      (run.py does this itself)
 
-writes DIR/<id>/{scenario.json, config.json, expect.json, inputs/}.
+writes DIR/<id>/{scenario.json, config.json, expect.json, stdout, inputs/}.
 scenario.json keys are documented in run.py, config.json in mockvt.py;
-expect.json is {"requests": [...], "files": {rel: {len, sha256}}, "note"}.
+expect.json is {"requests": [...], "files": {rel: {len, sha256}}, "exit": N,
+"connections": [label per request] (optional), "note"}; stdout is a copy of
+golden/<id>.stdout.
 """
 import argparse
 import base64
@@ -30,6 +34,7 @@ sys.dont_write_bytecode = True  # keep the source tree clean
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gen_util import blob, blob_of_gen, gen_bytes  # noqa: E402
 
+GOLDEN = Path(__file__).resolve().parent / "golden"
 K = "TESTKEY"
 B = "/vtapi/v2/"
 MiB = 1 << 20
@@ -39,14 +44,18 @@ SC = {}
 
 # ---------------------------------------------------------------- helpers
 def add(sid, tool, argv, routes=None, expect=(), note=None, files=None,
-        inputs=None, timeout=20, default=None, **extra):
+        inputs=None, timeout=20, default=None, exit=0, conns=None, **extra):
     """files: {rel path: blob} of every file the tool must create in its
-    cwd (default: none).  extra: further scenario.json keys (see run.py)."""
+    cwd (default: none).  exit: its exit status (-N: killed by signal N).
+    conns: one label per expected request; requests with equal labels must
+    share a connection, others must not.  extra: further scenario.json keys
+    (see run.py)."""
     assert sid not in SC, sid
+    assert conns is None or len(conns) == len(expect), sid
     SC[sid] = dict(tool=tool, argv=list(argv), routes=routes or {},
                    expect=list(expect), note=note, files=files or {},
                    inputs=inputs or {}, timeout=timeout, default=default,
-                   extra=extra)
+                   exit=exit, conns=conns, extra=extra)
 
 
 def R(method, path):
@@ -93,8 +102,20 @@ def P(name, value):
     return {"name": name, "data": blob(_b(value))}
 
 
+_CT = ((".gif", "image/gif"), (".jpg", "image/jpeg"), (".jpeg", "image/jpeg"),
+       (".png", "image/png"), (".svg", "image/svg+xml"), (".txt", "text/plain"),
+       (".htm", "text/html"), (".html", "text/html"), (".pdf", "application/pdf"),
+       (".xml", "application/xml"))
+
+
+def ctype(filename):
+    """libcurl 8.5's suffix table (SPEC 3.2), else application/octet-stream."""
+    return next((t for e, t in _CT if filename.lower().endswith(e)), "application/octet-stream")
+
+
 def F(name, filename, data):
-    p = {"filename": filename, "data": data if isinstance(data, dict) else blob(_b(data))}
+    p = {"filename": filename, "content_type": ctype(filename),
+         "data": data if isinstance(data, dict) else blob(_b(data))}
     if name is not None:
         p["name"] = name
     return p
@@ -146,8 +167,8 @@ for op, args in [("filescan", ["--filescan", "inputs/hello.txt"]),
                  ("clusters", ["--clusters", "2024-01-02"]),
                  ("download", ["--out", "o.bin", "--download", "H"])]:
     add(f"scan_need_apikey_{op}", "scan", args + ["--apikey", K],
-        inputs={"hello.txt": HELLO}, stdin="X")
-add("scan_need_out", "scan", ["--apikey", K, "--download", "H", "--out", "o.bin"])
+        inputs={"hello.txt": HELLO}, stdin="X", exit=1)
+add("scan_need_out", "scan", ["--apikey", K, "--download", "H", "--out", "o.bin"], exit=1)
 
 add("scan_filescan_ok", "scan", ["--apikey", K, "--filescan", "inputs/sample.bin"],
     {R("POST", "file/scan"): [J({"response_code": 1, "verbose_msg": "Scan request successfully queued",
@@ -247,7 +268,7 @@ add("scan_report_edge_sequence", "scan", ["--apikey", K] + sum([["--report", f"r
                                 J({"resource": "x"}), J({"response_code": "1", "verbose_msg": "L" * 300}),
                                 J({"response_code": 0, "verbose_msg": ""}), T(""),
                                 J({"response_code": -2, "verbose_msg": "short"})]},
-    [rep(f"r{i}") for i in range(1, 10)])
+    [rep(f"r{i}") for i in range(1, 10)], conns=list(range(9)))
 add("scan_report_response_code_0", "scan", ["--apikey", K, "--report", "R0"],
     {R("POST", "file/report"): [J({"response_code": 0, "verbose_msg": "The requested resource is not among the finished, queued or pending scans"})]},
     [rep("R0")])
@@ -329,7 +350,8 @@ add("scan_abbreviations", "scan",
      R("GET", "file/download"): [T("D")]},
     [scan_file_req("inputs/hello.txt", HELLO), rep("R1"), MP("file/rescan", P("resource", "R2"), P("apikey", K)),
      GET("file/clusters", *kq(("date", "2024-01-01"))), GET("file/download", *kq(("hash", "H")))],
-    note=D1, inputs={"hello.txt": HELLO}, files={"o.bin": blob(b"D")})
+    note=D1 + "; every POST gets a connection of its own, the GETs share one",
+    inputs={"hello.txt": HELLO}, files={"o.bin": blob(b"D")}, conns=[0, 1, 2, 3, 3])
 add("scan_nonoptions_permute", "scan", ["--apikey", K, "stray1", "--report", "R", "--", "--notanoption"],
     {R("POST", "file/report"): [J(OK)]}, [rep("R")])
 add("scan_posixly_correct", "scan", ["--apikey", K, "stray", "--report", "R"], env={"POSIXLY_CORRECT": "1"})
@@ -346,15 +368,23 @@ add("scan_vt_debug", "scan", ["--apikey", K, "--report", "R"],
     {R("POST", "file/report"): [J(OK)]}, [rep("R")], env={"VT_DEBUG": "1"})
 
 # signals / cancellation through the progress callback
-add("scan_sigterm_filescan", "scan", ["--apikey", K, "--filescan", "inputs/hello.txt"],
-    {R("POST", "file/scan"): [J(OK, delay=3)]},
-    [scan_file_req("inputs/hello.txt", HELLO)], note=D1, inputs={"hello.txt": HELLO},
-    signal={"name": "SIGTERM", "after_requests": 1, "delay": 0.3})
+add("scan_sigterm_filescan", "scan", ["--apikey", K, "--filescan", "inputs/hello.txt", "--report", "R"],
+    {R("POST", "file/scan"): [J(OK, delay=3)], R("POST", "file/report"): [J(OK)]},
+    [scan_file_req("inputs/hello.txt", HELLO)], inputs={"hello.txt": HELLO},
+    signal={"name": "SIGTERM", "after_requests": 1, "delay": 0.3},
+    note=D1 + "; SIGTERM cancels the wait for the upload's response and the later --report (nothing sent)")
 add("scan_sighup_download", "scan", ["--apikey", K, "--out", "dl.bin", "--download", "h", "--download", "h2"],
     {R("GET", "file/download"): [T("DATA", delay=3)]},
     [GET("file/download", *kq(("hash", "h")))], files={"dl.bin": blob(b"")},
     signal={"name": "SIGHUP", "after_requests": 1, "delay": 0.3},
     note="SIGHUP cancels the running download and every later operation")
+add("scan_sighup_sigterm_together", "scan", ["--apikey", K, "--report", "R"],
+    {R("POST", "file/report"): [J(OK, delay=3)]}, [rep("R")],
+    signal={"name": ["SIGHUP", "SIGTERM"], "after_requests": 1, "delay": 0.3},
+    note="SIGHUP and SIGTERM delivered together print one 'signal caught' line each")
+add("scan_sigterm_stdin_read", "scan", ["--apikey", K, "--scaninput"], stdin_hold=True,
+    signal={"name": "SIGTERM", "after_requests": 0, "delay": 1},
+    note="SIGTERM interrupts the stdin read: 'signal caught 15' comes before the read's 'ERROR 0', as in the legacy tool; nothing is sent")
 add("scan_sigterm_then_more_ops", "scan",
     ["--apikey", K, "--report", "R1", "--clusters", "2024-01-01", "--report", "R2"],
     {R("POST", "file/report"): [J(OK, delay=3), J(OK)], R("GET", "file/clusters"): [J({"clusters": []})]},
@@ -422,7 +452,7 @@ add("ip_report_ok", "ip", ["--apikey", K, "--report", "1.2.3.4"],
     {R("GET", IP): [J({"response_code": 1, "verbose_msg": "IP address in dataset", "asn": "123",
                        "resolutions": [{"hostname": "a.b", "last_resolved": "2014-01-01 00:00:00"}]})]},
     [GET(IP, *kq(("ip", "1.2.3.4")))])
-add("ip_no_apikey", "ip", ["--verbose", "--report", "1.2.3.4"])
+add("ip_no_apikey", "ip", ["--verbose", "--report", "1.2.3.4"], exit=1)
 add("ip_multi_options", "ip",
     ["-apikey", "K1", "--apikey=K2", "--rep=1.1.1.1", "-report", "2.2.2.2", "extra1", "--verbose=3", "-v",
      "--help=x", "--bogus", "--report"],
@@ -442,7 +472,7 @@ add("ip_escape_amp", "ip", ["--apikey", K, "--report", "1.2.3.4&x=y"], {R("GET",
     [GET(IP, *kq(("ip", "1.2.3.4&x=y")))], note=D4)
 add("ip_escape_hash_pct", "ip", ["--apikey", K, "--report", "a#frag", "--report", "b%41+c"],
     {R("GET", IP): [J({"response_code": 0})]},
-    [GET(IP, *kq(("ip", "a#frag"))), GET(IP, *kq(("ip", "b%41+c")))], note=D4)
+    [GET(IP, *kq(("ip", "a#frag"))), GET(IP, *kq(("ip", "b%41+c")))], note=D4, conns=[0, 0])
 add("ip_escape_space_stale", "ip", ["--apikey", K, "--report", "1.1.1.1", "--report", "x y"],
     {R("GET", IP): [J({"response_code": 1, "verbose_msg": "first"}), J({"response_code": 1, "verbose_msg": "second"})]},
     [GET(IP, *kq(("ip", "1.1.1.1"))), GET(IP, *kq(("ip", "x y")))],
@@ -459,7 +489,12 @@ add("ip_conn_refused", "ip", ["--apikey", K, "--report", "1.2.3.4"], no_mock=Tru
     note="D8: old code segfaults on connection failure")
 add("ip_drop_stale", "ip", ["--apikey", K, "--report", "1.1.1.1", "--report", "2.2.2.2"],
     {R("GET", IP): [J({"response_code": 1, "verbose_msg": "first"}), DROP]},
-    [GET(IP, *kq(("ip", "1.1.1.1"))), GET(IP, *kq(("ip", "2.2.2.2")))])
+    [GET(IP, *kq(("ip", "1.1.1.1"))), GET(IP, *kq(("ip", "2.2.2.2"))), GET(IP, *kq(("ip", "2.2.2.2")))],
+    conns=[0, 0, 1],
+    note="the drop hits the kept connection, so libcurl re-sends the GET once on a new one; that is dropped too, and the tool prints the error, never the stale first response")
+add("ip_stdout_closed", "ip", ["--apikey", K, "--report", "1.2.3.4"], {R("GET", IP): [J(OK)]},
+    [GET(IP, *kq(("ip", "1.2.3.4")))], exit=-13, stdout_closed=True,
+    note="stdout is a pipe whose reader has exited: the output flushed at exit fails, so the tool dies of SIGPIPE, as the legacy tool did")
 add("ip_vt_debug", "ip", ["--apikey", K, "--report", "1.2.3.4"], {R("GET", IP): [J({"a": 1})]},
     [GET(IP, *kq(("ip", "1.2.3.4")))], env={"VT_DEBUG": "1"})
 
@@ -469,7 +504,7 @@ add("dom_report_ok", "domain_report", ["--apikey", K, "--report", "example.com"]
     {R("GET", DOM): [T('{"e":{},"a":[],"f":1.5,"g":1e300,"h":2.9,"s":"é/\\u0001\\"","t":true,"n":null,"i":-3,'
                        '"z":{"b":2,"a":1},"response_code":1,"verbose_msg":"Domain found in dataset"}')]},
     [GET(DOM, *kq(("domain", "example.com")))])
-add("dom_no_apikey", "domain_report", ["--report", "example.com"])
+add("dom_no_apikey", "domain_report", ["--report", "example.com"], exit=1)
 add("dom_multi_help_nonopt", "domain_report",
     ["--apikey", K, "--report", "a.com", "--help", "--verbose=2", "--report", "b.com", "stray"],
     {R("GET", DOM): [J({"response_code": 1, "verbose_msg": "Domain found"}), J({"response_code": -1}, 403)]},
@@ -484,6 +519,9 @@ add("dom_drop", "domain_report", ["--apikey", K, "--report", "example.com", "--r
     [GET(DOM, *kq(("domain", "example.com"))), GET(DOM, *kq(("domain", "example.org")))])
 add("dom_escape_amp", "domain_report", ["--apikey", K, "--report", "a.com&x=y"],
     {R("GET", DOM): [J({"response_code": 0})]}, [GET(DOM, *kq(("domain", "a.com&x=y")))], note=D4)
+add("dom_escape_utf8", "domain_report", ["--apikey", K, "--report", "bücher.example"],
+    {R("GET", DOM): [J({"response_code": 0})]}, [GET(DOM, *kq(("domain", "bücher.example")))],
+    note=D4 + " (UTF-8 bytes >= 0x80 become %XX)")
 add("dom_escape_space", "domain_report", ["--apikey", K, "--report", "bad dom"],
     {R("GET", DOM): [J({"response_code": 0})]}, [GET(DOM, *kq(("domain", "bad dom")))],
     note=D4 + " (old code: curl rejects the space, no request)")
@@ -520,8 +558,8 @@ add("url_mixed_order", "url",
      "--scan", "http://c.com", "--verbose=1"],
     {R("POST", "url/report"): [J({"response_code": 1})], R("POST", "url/scan"): [T("[1,2]")]},
     [urep("http://a.com"), urep("http://b.com", "scan", "all_info"), uscan("http://c.com")])
-add("url_no_apikey_scan", "url", ["--scan", "http://x"])
-add("url_no_apikey_report", "url", ["--report", "http://x"])
+add("url_no_apikey_scan", "url", ["--scan", "http://x"], exit=1)
+add("url_no_apikey_report", "url", ["--report", "http://x"], exit=1)
 add("url_help_exits", "url", ["--apikey", K, "--help", "--report", "http://x"])
 add("url_ambiguous", "url", ["-a", K, "-r", "x", "--bogus"])
 add("url_nonjson", "url", ["--apikey", K, "--report", "http://x"], {R("POST", "url/report"): [T("nope")]},
@@ -661,11 +699,18 @@ add("fd_negative_repeat", "file_dist", ["--apikey", K, "--repeat", "-1"] + S0,
 add("fd_help", "file_dist", ["--apikey", K, "--help"])
 add("fd_stray_and_unknown", "file_dist", ["--apikey", K] + S0 + ["--repeat", "1", "--verbose=2", "--allinfo", "1", "stray"],
     {R("GET", FD): [J([])]}, [fdq()])
+# close=True: the drop must hit a new connection, or libcurl re-sends the GET
+# (see ip_drop_stale) and the scenario no longer models a failed page
 add("fd_stale_reparse", "file_dist", ["--apikey", K] + S0 + ["--repeat", "3"],
-    {R("GET", FD): [J([fitem(0, "l", "s", name="n")]), DROP, J([])]}, [fdq(), fdq()], note=D8S)
+    {R("GET", FD): [J([fitem(0, "l", "s", name="n")], close=True), DROP, J([])]}, [fdq(), fdq()], note=D8S)
 add("fd_drop_with_after", "file_dist", ["--apikey", K] + S0 + ["--repeat", "3"],
-    {R("GET", FD): [J([fitem(1400000000, "l", "s")]), DROP, J([])]}, [fdq(), fdq(("after", "1400000000"))])
+    {R("GET", FD): [J([fitem(1400000000, "l", "s")], close=True), DROP, J([])]},
+    [fdq(), fdq(("after", "1400000000"))])
 add("fd_drop_first", "file_dist", ["--apikey", K] + S0 + ["--repeat", "2"], {R("GET", FD): [DROP, J([])]}, [fdq()])
+BIGPAGE = [fitem(1000 + i, "https://dl/%d" % i, "%064x" % i, pad="x" * 2000) for i in range(40)]
+add("fd_stdout_closed", "file_dist", ["--apikey", K, "--repeat", "-1"] + S0, {R("GET", FD): [J(BIGPAGE)]},
+    [fdq()], exit=-13, stdout_closed=True, timeout=10,
+    note="stdout is a pipe whose reader has exited: writing the first page fails, so the tool dies of SIGPIPE before the next request, as the legacy tool did, instead of looping forever")
 add("fd_long_apikey", "file_dist", ["--apikey", "k" * 470, "--limit", "1000", "--reports", "1"] + S0 + ["--repeat", "1"],
     {R("GET", FD): [J([])]}, [fdq(("reports", "true"), ("limit", "1000"), key="k" * 470)],
     note="D8: long api keys must not overflow/truncate the URL (old code stack-overflows char[512])")
@@ -698,9 +743,9 @@ add("ud_missing_positives", "url_dist", ["--apikey", K] + S0 + ["--repeat", "1"]
     {R("GET", UD): [J([{"url": "u", "timestamp": 1, "total": 1}])]}, [udq()])
 add("ud_nonjson", "url_dist", ["--apikey", K] + S0 + ["--repeat", "1"], {R("GET", UD): [T("x")]}, [udq()])
 add("ud_drop_with_after", "url_dist", ["--apikey", K] + S0 + ["--repeat", "3"],
-    {R("GET", UD): [J([uitem(5, "u", 1, 0)]), DROP, J([])]}, [udq(), udq(("after", "5"))])
+    {R("GET", UD): [J([uitem(5, "u", 1, 0)], close=True), DROP, J([])]}, [udq(), udq(("after", "5"))])
 add("ud_stale_reparse", "url_dist", ["--apikey", K] + S0 + ["--repeat", "3"],
-    {R("GET", UD): [J([uitem(0, "u", 1, 0)]), DROP, J([])]}, [udq(), udq()], note=D8S)
+    {R("GET", UD): [J([uitem(0, "u", 1, 0)], close=True), DROP, J([])]}, [udq(), udq()], note=D8S)
 add("ud_drop_first", "url_dist", ["--apikey", K] + S0 + ["--repeat", "2"], {R("GET", UD): [DROP, J([])]}, [udq()])
 add("ud_help", "url_dist", ["--help", "--apikey", K])
 add("ud_long_apikey", "url_dist", ["--apikey", "k" * 470, "--limit", "1000", "--allinfo", "1"] + S0 + ["--repeat", "1"],
@@ -748,6 +793,10 @@ add("probe_rescan_changes_without_notify", "vtprobe", ["rescan", K, H32, "0", "0
     [rescan_req(H32)])
 add("probe_rescan_date_only", "vtprobe", ["rescan", K, H32, "86399", "0", "0", "-", "0"], RS,
     [rescan_req(H32, "19700101235959")])
+add("probe_rescan_date_max_year", "vtprobe", ["rescan", K, H32, "67767976233532799", "0", "0", "-", "0"], RS,
+    [rescan_req(H32, "21474836471231235959")], note="the last second whose UTC year (INT_MAX) %Y can print")
+add("probe_rescan_date_year_overflow", "vtprobe", ["rescan", K, H32, "67767976233532800", "0", "0", "-", "0"], RS, [],
+    note="a UTC year above INT_MAX is VT_EINVAL, nothing sent (glibc's %Y would print -2147483648)")
 add("probe_rescan_period_repeat", "vtprobe", ["rescan", K, H32, "0", "30", "2", "-", "0"], RS,
     [rescan_req(H32, period=30, repeat=2)])
 add("probe_scan_notify", "vtprobe", ["scan", K, "inputs/sample.bin", "http://notify.example/x"],
@@ -774,12 +823,30 @@ add("probe_scan_bigfile_small", "vtprobe", ["scan_bigfile", K, "inputs/sample.bi
     {R("GET", "file/scan/upload_url"): [J({"upload_url": "{MOCK}/_ah/upload/P/"})],
      R("POST", "/_ah/upload/P/"): [J({"response_code": 1, "verbose_msg": "queued"})]},
     [GET("file/scan/upload_url", ("apikey", K)), upload("/_ah/upload/P/", "inputs/sample.bin", SAMPLE)],
-    note=D3, inputs={"sample.bin": SAMPLE})
+    note=D3, inputs={"sample.bin": SAMPLE}, conns=[0, 1])
+add("probe_scan_bigfile_upload_dropped", "vtprobe", ["scan_bigfile", K, "inputs/sample.bin"],
+    {R("GET", "file/scan/upload_url"): [J({"upload_url": "{MOCK}/_ah/upload/D/"})],
+     R("POST", "/_ah/upload/D/"): [DROP]},
+    [GET("file/scan/upload_url", ("apikey", K)), upload("/_ah/upload/D/", "inputs/sample.bin", SAMPLE)],
+    inputs={"sample.bin": SAMPLE}, conns=[0, 1],
+    note="the upload POST gets a new connection: on the connection kept from step 1, libcurl would re-send the dropped upload")
+add("probe_scan_bigfile_gopher_upload_url", "vtprobe", ["scan_bigfile", K, "inputs/sample.bin"],
+    {R("GET", "file/scan/upload_url"): [J({"upload_url": "gopher://127.0.0.1:{PORT}/_GET%20/vtapi/v2/smuggled%20HTTP/1.0%0D%0A%0D%0A"})]},
+    [GET("file/scan/upload_url", ("apikey", K))], inputs={"sample.bin": SAMPLE},
+    note="only http and https URLs are used: a gopher upload_url (which would send GET /vtapi/v2/smuggled) fails with CURLE_UNSUPPORTED_PROTOCOL")
+add("probe_scan_bigfile_cancel_between", "vtprobe", ["scan_bigfile_cancel_between", K, "inputs/sample.bin"],
+    {R("GET", "file/scan/upload_url"): [J({"upload_url": "{MOCK}/_ah/upload/C/"})],
+     R("POST", "/_ah/upload/C/"): [J(OK)]},
+    [GET("file/scan/upload_url", ("apikey", K))], inputs={"sample.bin": SAMPLE},
+    note="a vt_cancel() between the two requests of vt_file_scan_big() (issued while step 1's response is parsed) cancels the operation before the upload")
 add("probe_upload_url_ok", "vtprobe", ["upload_url", K],
     {R("GET", "file/scan/upload_url"): [J({"upload_url": "{MOCK}/_ah/upload/Z/"})]},
     [GET("file/scan/upload_url", ("apikey", K))])
 add("probe_upload_url_missing_key", "vtprobe", ["upload_url", K],
     {R("GET", "file/scan/upload_url"): [J({})]}, [GET("file/scan/upload_url", ("apikey", K))])
+add("probe_upload_url_empty", "vtprobe", ["upload_url", K],
+    {R("GET", "file/scan/upload_url"): [J({"upload_url": ""})]}, [GET("file/scan/upload_url", ("apikey", K))],
+    note="an empty upload_url is VT_EPROTO (legacy -1)")
 add("probe_upload_url_escape", "vtprobe", ["upload_url", "K&x=1"],
     {R("GET", "file/scan/upload_url"): [J({"upload_url": "{MOCK}/_ah/upload/Z/"})]},
     [GET("file/scan/upload_url", ("apikey", "K&x=1"))], note=D4)
@@ -796,7 +863,12 @@ add("probe_search_seq_next", "vtprobe", ["search_seq", K, "q", "START", "@next",
 add("probe_file_dist_before_after", "vtprobe", ["file_dist", K, "1500000000", "1400000000", "1", "20", "2"],
     {R("GET", FD): [J([fitem(1400000100, "l", "s")]), J([])]},
     [fdq(("before", "1500000000"), ("after", "1400000000"), ("reports", "true"), ("limit", "20")),
-     fdq(("before", "1500000000"), ("after", "1400000100"), ("reports", "true"), ("limit", "20"))])
+     fdq(("before", "1500000000"), ("after", "1400000100"), ("reports", "true"), ("limit", "20"))],
+    conns=[0, 0])
+add("probe_file_dist_nested", "vtprobe", ["file_dist_nested", K, "R"],
+    {R("GET", FD): [J([fitem(7)])], R("POST", "file/report"): [J({"response_code": 0}, 403)]},
+    [fdq(), rep("R")],
+    note="a distribution callback may use the client; afterwards the diagnostics describe the distribution call (HTTP 200, no error), not the nested 403")
 add("probe_url_dist_before_after", "vtprobe", ["url_dist", K, "1500000000", "1400000000", "1", "20", "2"],
     {R("GET", UD): [J([uitem(1400000100)]), J([])]},
     [udq(("before", "1500000000"), ("after", "1400000000"), ("allinfo", "true"), ("limit", "20")),
@@ -833,19 +905,26 @@ def write_all(out: Path):
         d.mkdir(parents=True)
         sc = {"tool": s["tool"], "argv": s["argv"], "timeout": s["timeout"]}
         sc.update(s["extra"])
-        (d / "scenario.json").write_text(json.dumps(sc, indent=1, ensure_ascii=False) + "\n")
+        (d / "scenario.json").write_text(json.dumps(sc, indent=1, ensure_ascii=False) + "\n",
+                                         encoding="utf-8")
         cfg = {"routes": s["routes"]}
         if s["default"] is not None:
             cfg["default"] = s["default"]
-        (d / "config.json").write_text(json.dumps(cfg, indent=1) + "\n")
+        (d / "config.json").write_text(json.dumps(cfg, indent=1) + "\n", encoding="utf-8")
         if s["inputs"]:
             (d / "inputs").mkdir()
             for name, data in s["inputs"].items():
                 (d / "inputs" / name).write_bytes(data)
-        model = {"requests": s["expect"], "files": s["files"]}
+        model = {"requests": s["expect"], "files": s["files"], "exit": s["exit"]}
+        if s["conns"] is not None:
+            model["connections"] = s["conns"]
         if s["note"]:
             model["note"] = s["note"]
-        (d / "expect.json").write_text(json.dumps(model, indent=1, ensure_ascii=False) + "\n")
+        (d / "expect.json").write_text(json.dumps(model, indent=1, ensure_ascii=False) + "\n",
+                                       encoding="utf-8")
+        golden = GOLDEN / (sid + ".stdout")
+        if golden.exists():
+            shutil.copyfile(golden, d / "stdout")
     return list(SC)
 
 

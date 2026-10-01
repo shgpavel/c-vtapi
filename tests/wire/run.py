@@ -3,6 +3,7 @@
 
   run.py --workdir DIR (--bindir BINDIR | --tool NAME=PATH ... --probe PATH)
          [--only ID ...] [--jobs N] [--port N] [--wrapper CMD] [-q]
+         [--update-golden]
 
 1. gen_scenarios.py writes the scenarios (+ model) to DIR/scenarios/.
 2. Each scenario runs its tool (one of scan search ip domain_report url
@@ -12,10 +13,18 @@
    VT_API_BASE_URL=http://127.0.0.1:<port>/vtapi/v2/, so runs never collide
    with each other or with other test suites.  Scenario env values may use
    {MOCK} (http://127.0.0.1:<port>) and {PORT}.  "no_mock" scenarios get a
-   port that is bound but not listening (connection refused).
-3. check.py compares recorded requests and created files with the model.
+   port that is bound but not listening (connection refused).  The tools
+   also get TZ=XYZ-5:30, a non-UTC zone, so a local-time bug shows on UTC
+   hosts too.
+3. check.py compares recorded requests, created files, exit status and
+   stdout with the model and the golden stdout, and fails a scenario whose
+   stderr holds a sanitizer report.
 Exit status 0 when every selected scenario passes, 1 otherwise, 2 on usage
 errors.
+
+--update-golden writes the stdout of every scenario that ran (normalised as
+check.py compares it) to tests/wire/golden/<id>.stdout; review the result
+with git diff.
 
 --port N pins the mock to port N (for old builds with a compiled-in base
 URL); it implies --jobs 1 and waits while the port is busy.
@@ -24,8 +33,8 @@ URL); it implies --jobs 1 and waits while the port is busy.
 shell command line), e.g. under valgrind:
   --wrapper 'valgrind -q --error-exitcode=99 --leak-check=full
              --errors-for-leak-kinds=definite,indirect' --wrapper-exit 99
-argv[0] is then the tool's path instead of the scenario's argv0 (stdout is
-not checked anyway).  --wrapper-exit N makes a scenario whose tool exits
+argv[0] is then the tool's path, which the stdout comparison maps back to
+the scenario's argv0.  --wrapper-exit N makes a scenario whose tool exits
 with status N fail, so the wrapper's own error exit status is reported.
 
 scenario.json keys: tool, argv, timeout (seconds) and optionally
@@ -37,8 +46,14 @@ scenario.json keys: tool, argv, timeout (seconds) and optionally
   "inputs_at_cwd": true   copy inputs/* into the cwd itself (default:
                 cwd/inputs/)
   "no_mock": true         connection refused
+  "stdin_hold": true      stdin is a pipe that stays open (and empty) until
+                the tool exits
+  "stdout_closed": true   stdout is a pipe whose reader has already exited
   "signal": {"name": "SIGTERM", "after_requests": 1, "delay": 0.3}
-                send a signal once the mock has logged N requests
+                send a signal `delay` seconds after the mock has logged N
+                requests (with N = 0, after the start: that delay is scaled
+                by --timeout-mult, as the tool's start-up is); a list of
+                names is delivered together (sent while the tool is stopped)
 """
 import argparse
 import base64
@@ -112,14 +127,27 @@ def tool_env(origin, port, sc_env):
     for k in SCRUB_ENV:
         env.pop(k, None)
     env["no_proxy"] = env["NO_PROXY"] = "*"
+    # a POSIX zone (no tzdata needed) that is not UTC, with a half-hour
+    # offset: a rescan date formatted in local time differs on any host
+    env["TZ"] = "XYZ-5:30"
     env["VT_API_BASE_URL"] = origin + "/vtapi/v2/"
     for k, v in sc_env.items():
         env[k] = v.replace("{MOCK}", origin).replace("{PORT}", str(port))
     return env
 
 
+def send_signals(p, sig):
+    names = sig["name"] if isinstance(sig["name"], list) else [sig["name"]]
+    if len(names) > 1:  # stopped, the tool receives them all at once
+        p.send_signal(signal.SIGSTOP)
+    for n in names:
+        p.send_signal(getattr(signal, n))
+    if len(names) > 1:
+        p.send_signal(signal.SIGCONT)
+
+
 def run_one(sdir: Path, rdir: Path, tools, a, log):
-    sc = json.loads((sdir / "scenario.json").read_text())
+    sc = json.loads((sdir / "scenario.json").read_text(encoding="utf-8"))
     if rdir.exists():
         shutil.rmtree(rdir)
     work = rdir / "cwd"
@@ -146,6 +174,7 @@ def run_one(sdir: Path, rdir: Path, tools, a, log):
     t0 = time.time()
     code, so, se = None, b"", b""
     mock = holder = None
+    hold_w = None
     try:
         if not exe:
             reqlog.touch()
@@ -156,27 +185,43 @@ def run_one(sdir: Path, rdir: Path, tools, a, log):
             holder = with_port(hold_port, a.port, a.port_wait, log)
             port = holder.getsockname()[1]
         else:
-            cfg = json.loads((sdir / "config.json").read_text())
+            cfg = json.loads((sdir / "config.json").read_text(encoding="utf-8"))
             mock = with_port(lambda p: MockServer(cfg, reqlog, p), a.port, a.port_wait, log).start()
             port = mock.port
         origin = "http://127.0.0.1:%d" % port
+        (rdir / "origin").write_text(origin)
         env = tool_env(origin, port, sc.get("env", {}))
         timeout = sc.get("timeout", 30) * a.timeout_mult
+        args = [x.encode("utf-8") for x in sc["argv"]]  # whatever the locale
         if a.wrapper:
-            argv, exe = shlex.split(a.wrapper) + [exe] + sc["argv"], None
+            argv, exe = shlex.split(a.wrapper) + [exe] + args, None
+            (rdir / "argv0").write_text(argv[len(argv) - len(args) - 1])
         else:
-            argv = [sc.get("argv0", sc["tool"])] + sc["argv"]
-        p = subprocess.Popen(argv, executable=exe, cwd=work, env=env, stdin=subprocess.PIPE,
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            argv = [sc.get("argv0", sc["tool"]).encode("utf-8")] + args
+        stdin_arg, stdout_arg = subprocess.PIPE, subprocess.PIPE
+        if sc.get("stdin_hold"):
+            stdin_arg, hold_w = os.pipe()
+            stdin = None
+        if sc.get("stdout_closed"):
+            r, stdout_arg = os.pipe()
+            os.close(r)
+        try:
+            p = subprocess.Popen(argv, executable=exe, cwd=work, env=env, stdin=stdin_arg,
+                                 stdout=stdout_arg, stderr=subprocess.PIPE)
+        finally:
+            for fd in (stdin_arg, stdout_arg):
+                if fd != subprocess.PIPE:
+                    os.close(fd)
         sig = sc.get("signal")
         if sig:
             def killer():
                 t_end = time.time() + timeout
                 while time.time() < t_end and p.poll() is None:
                     if mock is not None and mock.count >= sig.get("after_requests", 0):
-                        time.sleep(sig.get("delay", 0.3))
+                        time.sleep(sig.get("delay", 0.3) *
+                                   (1 if sig.get("after_requests", 0) else a.timeout_mult))
                         if p.poll() is None:
-                            p.send_signal(getattr(signal, sig["name"]))
+                            send_signals(p, sig)
                         return
                     time.sleep(0.02)
             threading.Thread(target=killer, daemon=True).start()
@@ -193,8 +238,10 @@ def run_one(sdir: Path, rdir: Path, tools, a, log):
             mock.stop()
         if holder is not None:
             holder.close()
-        (rdir / "stdout").write_bytes(so)
-        (rdir / "stderr").write_bytes(se)
+        if hold_w is not None:
+            os.close(hold_w)
+        (rdir / "stdout").write_bytes(so or b"")
+        (rdir / "stderr").write_bytes(se or b"")
         (rdir / "exit").write_text(str(code))
         (rdir / "time").write_text("%.1f" % (time.time() - t0))
         for g in sc.get("gen", []):  # can be huge; never reported as created
@@ -204,7 +251,8 @@ def run_one(sdir: Path, rdir: Path, tools, a, log):
             rel = f.relative_to(work)
             if f.is_file() and rel not in before:
                 created[rel.as_posix()] = blob(f.read_bytes())
-        (rdir / "files.json").write_text(json.dumps(created, indent=1, sort_keys=True) + "\n")
+        (rdir / "files.json").write_text(json.dumps(created, indent=1, sort_keys=True) + "\n",
+                                         encoding="utf-8")
 
 
 def parse_tools(a, err):
@@ -251,8 +299,11 @@ def main():
                     help="run every tool under this command, e.g. 'valgrind -q --error-exitcode=99'")
     ap.add_argument("--wrapper-exit", type=int, metavar="N",
                     help="fail a scenario whose tool exits with status N (the wrapper's error status)")
+    ap.add_argument("--update-golden", action="store_true",
+                    help="write each run's stdout to tests/wire/golden/<id>.stdout")
     ap.add_argument("-q", "--quiet", action="store_true", help="print failing scenarios only")
     a = ap.parse_args()
+    sys.stdout.reconfigure(errors="backslashreplace")  # diffs on an ASCII terminal
 
     def err(msg):
         ap.error(msg)
@@ -296,6 +347,10 @@ def main():
         except Exception as e:  # PortBusy, unwritable workdir, ...
             (res_root / i).mkdir(parents=True, exist_ok=True)
             (res_root / i / "exit").write_text("runner-error: %s: %s" % (type(e).__name__, e))
+        if a.update_golden and (res_root / i / "exit").read_text().strip().lstrip("-").isdigit():
+            out = check.result_stdout(scen_root / i, res_root / i)
+            (gen_scenarios.GOLDEN / (i + ".stdout")).write_bytes(out)
+            (scen_root / i / "stdout").write_bytes(out)
         ok, status, lines = check.check_one(scen_root / i, res_root / i)
         if a.wrapper_exit is not None:
             code = (res_root / i / "exit").read_text().strip()
@@ -313,9 +368,15 @@ def main():
         for i in ids:
             one(i)
     else:
-        with concurrent.futures.ThreadPoolExecutor(a.jobs) as ex:
+        ex = concurrent.futures.ThreadPoolExecutor(a.jobs)
+        try:
             for f in [ex.submit(one, i) for i in ids]:
                 f.result()
+        except KeyboardInterrupt:  # do not start the queued scenarios
+            ex.shutdown(wait=False, cancel_futures=True)
+            raise
+        finally:
+            ex.shutdown(wait=True)
     fails.sort()
     check.report(fails, len(ids))
     print("wall time %.1fs; results in %s" % (time.time() - t_start, res_root))

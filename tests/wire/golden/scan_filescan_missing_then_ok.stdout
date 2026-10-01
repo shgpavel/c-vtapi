@@ -1,0 +1,7 @@
+ apikey: TESTKEY 
+Error: -1 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}

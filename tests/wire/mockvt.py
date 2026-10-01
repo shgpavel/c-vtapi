@@ -2,8 +2,10 @@
 """Recording mock of the VirusTotal v2 API.
 
 Every request is appended to the log as one JSON line (method, path, ordered
-query pairs, content type, decoded form / multipart body).  Responses come
-from a JSON config:
+query pairs, request headers except the framing ones, content type, decoded
+form / multipart body, and "conn": the number of the connection it came on,
+1, 2, ... in accept order).  Connections are kept alive, like a real
+server's.  Responses come from a JSON config:
 
   {"routes": {"GET /vtapi/v2/ip-address/report": [resp, resp, ...],
               "* /vtapi/v2/file/scan": [resp]},
@@ -15,9 +17,11 @@ Responses for a route are consumed in order; the last one repeats.
 
   {"drop": true}      log the request, then close the connection without
                       sending any response (curl: "Empty reply from server").
-  "{MOCK}"            in "json" values, "body" and header values is replaced
-                      by the mock's own origin, http://127.0.0.1:<port>
-                      (absolute upload_url, redirect Locations).
+  "close": true       send "Connection: close" and close the connection
+                      after this response.
+  "{MOCK}", "{PORT}"  in "json" values, "body" and header values are replaced
+                      by the mock's own origin, http://127.0.0.1:<port>, and
+                      port (absolute upload_url, redirect Locations).
   "chunks": N         send the body with Transfer-Encoding: chunked in N
                       pieces (exercises client-side body concatenation).
   "ctype": "..."      override the response Content-Type.
@@ -40,8 +44,8 @@ sys.dont_write_bytecode = True  # keep the source tree clean
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gen_util import blob  # noqa: E402
 
-HDR_DROP = {"host", "user-agent", "content-length", "accept", "expect",
-            "transfer-encoding", "connection", "content-type"}
+# framing headers, not recorded (content-type is recorded separately)
+HDR_DROP = {"host", "content-length", "transfer-encoding", "connection", "content-type"}
 
 
 def parse_multipart(body: bytes, boundary: str):
@@ -81,14 +85,25 @@ def ctype_params(ct: str):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 60
+    # headers and body are separate writes: with Nagle, the body of every
+    # response on a kept-alive connection would wait for a delayed ACK
+    disable_nagle_algorithm = True
 
     def log_message(self, *a):
         pass
 
     def setup(self):
         super().setup()
-        self._pending = True
+        self._pending = True  # a request may be on its way
         self.server.track(+1)
+        self.conn = self.server.next_conn()
+
+    def parse_request(self):
+        # a further request on a kept-alive connection
+        if not self._pending:
+            self._pending = True
+            self.server.track(+1)
+        return super().parse_request()
 
     def finish(self):
         if self._pending:
@@ -114,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
         srv = self.server
         u = urlsplit(self.path)
         body, chunked = self.read_body()
-        rec = {"method": self.command, "path": u.path,
+        rec = {"method": self.command, "path": u.path, "conn": self.conn,
                "query": parse_qsl(u.query, keep_blank_values=True),
                "headers": {k.lower(): v for k, v in self.headers.items()
                            if k.lower() not in HDR_DROP}}
@@ -141,15 +156,14 @@ class Handler(BaseHTTPRequestHandler):
         if resp.get("drop"):
             self.close_connection = True
             return
-        origin = srv.origin
         if "json" in resp:
-            data = json.dumps(resp["json"]).replace("{MOCK}", origin).encode()
+            data = srv.subst(json.dumps(resp["json"])).encode()
             ctype = "application/json"
         elif "body_b64" in resp:
             data = base64.b64decode(resp["body_b64"])
             ctype = "application/octet-stream"
         else:
-            data = resp.get("body", "").replace("{MOCK}", origin).encode()
+            data = srv.subst(resp.get("body", "")).encode()
             ctype = "text/plain"
         ctype = resp.get("ctype", ctype)
         chunks = int(resp.get("chunks", 0))
@@ -159,9 +173,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Transfer-Encoding", "chunked")
         else:
             self.send_header("Content-Length", str(len(data)))
-        self.send_header("Connection", "close")
+        if resp.get("close"):
+            self.send_header("Connection", "close")
+            self.close_connection = True
         for k, v in resp.get("headers", {}).items():
-            self.send_header(k, v.replace("{MOCK}", origin))
+            self.send_header(k, srv.subst(v))
         self.end_headers()
         try:
             if chunks > 0:
@@ -174,8 +190,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError):
-            pass
-        self.close_connection = True
+            self.close_connection = True
 
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = handle_any
 
@@ -192,9 +207,10 @@ class MockServer(ThreadingHTTPServer):
         self.cfg = cfg
         self.cursor = {}
         self.count = 0
+        self.conns = 0
         self.pending = 0
         self.lock = threading.Lock()
-        self.logf = open(log_path, "w")
+        self.logf = open(log_path, "w", encoding="utf-8")
         try:
             super().__init__(("127.0.0.1", port), Handler)
         except OSError:
@@ -210,6 +226,14 @@ class MockServer(ThreadingHTTPServer):
     def track(self, delta):
         with self.lock:
             self.pending += delta
+
+    def next_conn(self):
+        with self.lock:
+            self.conns += 1
+            return self.conns
+
+    def subst(self, text):
+        return text.replace("{MOCK}", self.origin).replace("{PORT}", str(self.port))
 
     def record(self, rec, key_exact, key_any):
         routes = self.cfg.get("routes", {})
@@ -257,7 +281,7 @@ def main():
     ap.add_argument("--config", required=True)
     ap.add_argument("--log", required=True)
     a = ap.parse_args()
-    with open(a.config) as f:
+    with open(a.config, encoding="utf-8") as f:
         cfg = json.load(f)
     srv = MockServer(cfg, a.log, a.port)
     print(srv.port, flush=True)

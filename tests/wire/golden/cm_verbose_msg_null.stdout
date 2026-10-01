@@ -1,0 +1,7 @@
+ apikey: TESTKEY 
+ resource: abc 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": null
+}

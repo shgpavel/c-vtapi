@@ -29,22 +29,31 @@ limitations under the License.
 #define MAX_SCAN_SIZE (32 * 1024 * 1024)
 
 /* The handler only records the signal: printing from a signal handler is
- * not async-signal-safe.  "signal caught %d\n" is printed from normal
- * context at the next progress tick or option boundary. */
-static volatile sig_atomic_t caught;  /* any SIGHUP/SIGTERM seen */
-static volatile sig_atomic_t pending; /* not yet reported, 0 = none */
+ * not async-signal-safe.  "signal caught %d\n" is printed once per signal
+ * from normal context at the next progress tick, stdin read or option
+ * boundary.  One flag per signal: one handler can interrupt the other. */
+static volatile sig_atomic_t caught;   /* any SIGHUP/SIGTERM seen */
+static volatile sig_atomic_t got_hup;  /* SIGHUP not yet reported */
+static volatile sig_atomic_t got_term; /* SIGTERM not yet reported */
 
 static void on_signal(int sig) {
 	caught = 1;
-	pending = sig;
+	if (sig == SIGHUP)
+		got_hup = 1;
+	else
+		got_term = 1;
 }
 
+/* SIGTERM first: the legacy order when both arrive together (the kernel
+ * runs the SIGTERM handler on top of the SIGHUP one). */
 static void report_signal(void) {
-	int sig = pending;
-
-	if (sig) {
-		pending = 0;
-		printf("signal caught %d\n", sig);
+	if (got_term) {
+		got_term = 0;
+		printf("signal caught %d\n", SIGTERM);
+	}
+	if (got_hup) {
+		got_hup = 0;
+		printf("signal caught %d\n", SIGHUP);
 	}
 }
 
@@ -106,6 +115,7 @@ static vt_err scan_stdin(struct ctx *x, const char *name, json_t **resp) {
 
 	if (!buf) return VT_ENOMEM;
 	n = fread(buf, 1, MAX_SCAN_SIZE, stdin);
+	report_signal(); /* legacy order: a signal during the read first */
 	if (n < 1) {
 		printf("ERROR %d \n", (int)n);
 		free(buf);

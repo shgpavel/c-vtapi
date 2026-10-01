@@ -166,6 +166,17 @@ static vt_err add_part(vt_client *c, curl_mime *mime,
 	return VT_OK;
 }
 
+/* CURLOPT_PROTOCOLS_STR or CURLOPT_REDIR_PROTOCOLS_STR.  A libcurl built
+ * without TLS rejects "https" (CURLE_UNSUPPORTED_PROTOCOL, nothing
+ * stored): it then gets "http" alone. */
+static CURLcode set_protocols(CURL *h, CURLoption opt) {
+	CURLcode rc = curl_easy_setopt(h, opt, VT_PROTOCOLS);
+
+	if (rc == CURLE_UNSUPPORTED_PROTOCOL)
+		rc = curl_easy_setopt(h, opt, "http");
+	return rc;
+}
+
 /* Applies every option of one request to the freshly reset handle.  All
  * of them are plain stores that can only fail with CURLE_OUT_OF_MEMORY
  * (string copies) or on a libcurl without the option. */
@@ -174,10 +185,8 @@ static CURLcode setup(vt_client *c, CURL *h, const struct vt_req *rq,
                       struct curl_slist *hdr, curl_mime *mime) {
 	CURLcode rc = curl_easy_setopt(h, CURLOPT_URL, url);
 
-	if (!rc) rc = curl_easy_setopt(h, CURLOPT_PROTOCOLS_STR, VT_PROTOCOLS);
-	if (!rc)
-		rc = curl_easy_setopt(h, CURLOPT_REDIR_PROTOCOLS_STR,
-		                      VT_PROTOCOLS);
+	if (!rc) rc = set_protocols(h, CURLOPT_PROTOCOLS_STR);
+	if (!rc) rc = set_protocols(h, CURLOPT_REDIR_PROTOCOLS_STR);
 	if (!rc) rc = curl_easy_setopt(h, CURLOPT_ERRORBUFFER, c->curl_errbuf);
 	if (!rc) rc = curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);
 	if (!rc) rc = curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
@@ -190,6 +199,12 @@ static CURLcode setup(vt_client *c, CURL *h, const struct vt_req *rq,
 		rc = curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L);
 	if (!rc && mime) rc = curl_easy_setopt(h, CURLOPT_HTTPHEADER, hdr);
 	if (!rc && mime) rc = curl_easy_setopt(h, CURLOPT_MIMEPOST, mime);
+	/* A POST never rides a reused connection, and its own one is closed
+	 * afterwards: libcurl silently re-sends a request once when a reused
+	 * connection dies before any response byte, and an upload or a
+	 * comment must not be sent twice.  GETs keep sharing connections. */
+	if (!rc && mime) rc = curl_easy_setopt(h, CURLOPT_FRESH_CONNECT, 1L);
+	if (!rc && mime) rc = curl_easy_setopt(h, CURLOPT_FORBID_REUSE, 1L);
 	if (!rc && vt__log_level() >= 1)
 		rc = curl_easy_setopt(h, CURLOPT_VERBOSE, 1L);
 	return rc;

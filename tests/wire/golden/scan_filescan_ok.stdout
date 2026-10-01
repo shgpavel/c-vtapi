@@ -1,0 +1,8 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "Scan request successfully queued",
+    "resource": "abc",
+    "scan_id": "abc-123"
+}

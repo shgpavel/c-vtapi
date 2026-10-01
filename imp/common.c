@@ -16,7 +16,6 @@ limitations under the License.
 
 #include "common.h"
 
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +29,6 @@ static void oom(void) {
 vt_client *vtc_client(void) {
 	vt_client *c;
 
-	signal(SIGPIPE, SIG_IGN);
 	c = vt_client_new(nullptr, getenv("VT_API_BASE_URL"));
 	if (!c) oom();
 	return c;

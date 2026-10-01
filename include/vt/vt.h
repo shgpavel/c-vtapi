@@ -31,10 +31,11 @@ limitations under the License.
  *  Errors.  Every network function returns a vt_err.  VT_OK (0) means
  *    success; anything else is a failure and the details of the most
  *    recent operation are available from vt_http_status(), vt_curl_code()
- *    and vt_errmsg().  Required pointer arguments must be non-NULL: a NULL
- *    client or a NULL required argument returns VT_EINVAL and sends
- *    nothing.  Functions that also reject an empty string say so; every
- *    other string, "" included, is sent as given.
+ *    and vt_errmsg() (except for a call rejected because the client is
+ *    busy, see Callbacks).  Required pointer arguments must be non-NULL:
+ *    a NULL client or a NULL required argument returns VT_EINVAL and
+ *    sends nothing.  Functions that also reject an empty string say so;
+ *    every other string, "" included, is sent as given.
  *
  *  Unused results.  Functions marked VT_NODISCARD warn when their result
  *    is ignored.  Before C23 and C++17 the attribute is GCC's
@@ -63,28 +64,34 @@ limitations under the License.
  *    may be called from any thread and from a signal handler.
  *
  *  Signals.  The library installs no signal handlers and does not touch
- *    SIGPIPE.  Because of CURLOPT_NOSIGNAL, libcurl does not block SIGPIPE
- *    either, so a write to a connection or pipe closed by the peer (by
- *    libcurl or by one of your callbacks) may raise SIGPIPE, which kills
- *    the process by default.  Applications should ignore it, e.g.
- *    signal(SIGPIPE, SIG_IGN) at startup (the bundled tools do).
+ *    SIGPIPE.  libcurl runs with CURLOPT_NOSIGNAL, so it does not ignore
+ *    SIGPIPE around transfers; it sends with MSG_NOSIGNAL (Linux) or
+ *    SO_NOSIGPIPE (BSD/macOS) instead, so a peer closing the connection
+ *    does not raise it there.  Writes done by your own callbacks (e.g.
+ *    the download sink) follow your process's SIGPIPE disposition.
  *
  *  Connections.  Each client keeps one libcurl easy handle for its whole
  *    life, so connections, DNS results and TLS sessions are reused by its
  *    later operations.  Every request starts from reset options: nothing
- *    one request sets leaks into the next.  Only "http" and "https" URLs
- *    are used, for redirects too.
+ *    one request sets leaks into the next.  The GET lookups share the kept
+ *    connections; libcurl re-sends a GET once if a reused connection dies
+ *    before any response byte.  Every POST (scans, rescans, file/report,
+ *    file/search, url/scan, url/report, comments/put and the upload of
+ *    vt_file_scan_big()) uses a new connection that is closed afterwards,
+ *    so a POST is never sent twice.  Only "http" and "https" URLs are
+ *    used, for redirects too ("http" alone with a libcurl without TLS).
  *
  *  Callbacks.  All callbacks run synchronously on the thread that called
  *    the library.  The progress and write callbacks run inside the
  *    transfer: calling another operation on the same client from them
- *    returns VT_EINVAL.  Distribution callbacks run after the transfer and
- *    may use the client; the diagnostics read after the distribution call
- *    still describe that call, not the nested ones.  The item and strings
- *    they receive are borrowed and valid only during the callback: treat
- *    the item as read-only (do not add, remove or replace members, the
- *    strings point into it) and keep it with json_incref() or
- *    json_deep_copy(), or keep *out.
+ *    returns VT_EINVAL and records nothing, so the client's diagnostics
+ *    keep describing the running operation.  Distribution callbacks run
+ *    after the transfer and may use the client; the diagnostics read after
+ *    the distribution call still describe that call, not the nested ones.
+ *    The item and strings they receive are borrowed and valid only during
+ *    the callback: treat the item as read-only (do not add, remove or
+ *    replace members, the strings point into it) and keep it with
+ *    json_incref() or json_deep_copy(), or keep *out.
  *
  *  ABI.  The public structs (struct vt_rescan_opts, struct vt_dist_query)
  *    are allocated by the caller and read in full by the library, so their
@@ -161,8 +168,8 @@ typedef enum vt_err {
 	VT_EPROTO,  /* JSON is valid but lacks what the operation needs */
 	VT_ECANCEL, /* cancelled by vt_cancel() or the progress callback;
 	               vt_curl_code() == 42 (CURLE_ABORTED_BY_CALLBACK) */
-	VT_EIO,     /* a local upload source could not be read;
-	               vt_curl_code() == 26 (CURLE_READ_ERROR) */
+	VT_EIO,     /* a local file to upload does not exist or is not
+	               readable; vt_curl_code() == 26 (CURLE_READ_ERROR) */
 } vt_err;
 
 /* Static English text for `err` (never NULL).  Thread-safe. */
@@ -278,9 +285,12 @@ VT_API const char *vt_next_offset(const json_t *resp);
  * = basename, Content-Type guessed from the extension, else
  * application/octet-stream), "filename" = `path` as given, "notify_url"
  * if non-NULL and non-empty, "apikey".  An empty `path` is VT_EINVAL;
- * VT_EIO (nothing sent) if `path` is unreadable.  Requires HTTP 200.  No
- * size limit here; files of 32 MiB and more should go through
- * vt_file_scan_big().
+ * VT_EIO (nothing sent) if `path` does not exist or is not readable
+ * (stat() or access() fails).  Anything else is streamed as read until
+ * EOF: pipes and devices work, a directory uploads as an empty part and a
+ * read error partway through is not detected (a short upload).  Requires
+ * HTTP 200.  No size limit here; files of 32 MiB and more should go
+ * through vt_file_scan_big().
  */
 VT_NODISCARD VT_API vt_err vt_file_scan(vt_client *c, const char *path,
                                         const char *notify_url, json_t **out);
@@ -303,10 +313,11 @@ VT_NODISCARD VT_API vt_err vt_file_scan_mem(vt_client *c, const char *filename,
  * "file" = contents of `path` (basename filename) and "filename" = `path`;
  * no apikey part.  An empty `path` is VT_EINVAL (nothing sent).  VT_EPROTO
  * if the first response has no non-empty "upload_url"; VT_EIO if `path`
- * is unreadable (detected after step 1, nothing uploaded).  Both requests
- * form one operation: a vt_cancel() at any time, including between them,
- * fails it with VT_ECANCEL.  The final response must be HTTP 200; *out is
- * its JSON.
+ * does not exist or is not readable (detected after step 1, nothing
+ * uploaded; anything else is streamed as for vt_file_scan()).  Both
+ * requests form one operation: a vt_cancel() at any time, including
+ * between them, fails it with VT_ECANCEL.  The final response must be
+ * HTTP 200; *out is its JSON.
  */
 VT_NODISCARD VT_API vt_err vt_file_scan_big(vt_client *c, const char *path,
                                             json_t **out);
@@ -323,8 +334,12 @@ VT_NODISCARD VT_API vt_err vt_file_upload_url(vt_client *c, char **url);
  * need.  A NULL options pointer means all zero.  Part of the ABI (see
  * above). */
 struct vt_rescan_opts {
-	int64_t date;             /* != 0: "date" = UTC YYYYmmddHHMMSS of
-	                             these seconds since the Unix epoch */
+	int64_t date;             /* != 0: "date" = these seconds since the
+	                             Unix epoch as UTC "%Y%m%d%H%M%S", i.e.
+	                             YYYYmmddHHMMSS for years 1000..9999;
+	                             other years get %Y as the C library
+	                             prints it (glibc: no zero padding, '-'
+	                             before negative years) */
 	int period;               /* != 0: "period" (decimal) */
 	int repeat;               /* != 0: "repeat" (decimal) */
 	const char *notify_url;   /* != NULL: "notify_url" (even "") */
@@ -335,9 +350,9 @@ struct vt_rescan_opts {
 /*
  * POST file/rescan.  Multipart, in order: "resource" (a hash or a
  * comma-separated list), then the options above in declaration order,
- * then "apikey".  VT_EINVAL if `date` does not fit in time_t or cannot be
- * converted to UTC.  Requires HTTP 200; a multi-resource rescan yields a
- * JSON array.
+ * then "apikey".  VT_EINVAL if `date` does not fit in time_t, cannot be
+ * converted to UTC or its UTC year exceeds INT_MAX.  Requires HTTP 200; a
+ * multi-resource rescan yields a JSON array.
  */
 VT_NODISCARD VT_API vt_err vt_file_rescan(vt_client *c, const char *resource,
                                           const struct vt_rescan_opts *opts,

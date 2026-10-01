@@ -16,6 +16,7 @@ limitations under the License.
 
 /* file/... endpoints.  Each is validation + one declarative request. */
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -129,7 +130,10 @@ vt_err vt_file_rescan(vt_client *c, const char *resource,
 
 	vt__out_init(out);
 	if (!c || !resource) return vt__inval(c, "resource required");
+	/* glibc's %Y computes tm_year + 1900 in int: a later year would be
+	 * printed as garbage, so it is rejected */
 	if (o->date && ((int64_t)t != o->date || !gmtime_r(&t, &tm) ||
+	                tm.tm_year > INT_MAX - 1900 ||
 	                !strftime(date, sizeof date, "%Y%m%d%H%M%S", &tm)))
 		return vt__inval(c, "date out of range");
 	const struct vt_param params[] = {

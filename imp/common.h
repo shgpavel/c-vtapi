@@ -24,9 +24,9 @@ limitations under the License.
 #include "vt/vt.h"
 
 /* Client with no API key and the base URL from $VT_API_BASE_URL (unset or
- * empty: VT_DEFAULT_BASE_URL).  Also ignores SIGPIPE, which the library
- * leaves alone, so a closed stdout or connection cannot kill the tool.
- * Exits with status 1 if the client cannot be created. */
+ * empty: VT_DEFAULT_BASE_URL).  SIGPIPE keeps its default action, as in
+ * the legacy tools: a tool whose stdout reader has gone away dies at its
+ * next write.  Exits with status 1 if the client cannot be created. */
 vt_client *vtc_client(void);
 
 /* The integer the tools print in "Error: %d \n" / "returned error %d\n",

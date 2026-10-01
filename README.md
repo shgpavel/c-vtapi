@@ -77,7 +77,6 @@ This program looks up the report for a hash and prints the detection ratio.
 
 ```c
 /* report.c - print the detection ratio of a file hash */
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -94,7 +93,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "usage: %s APIKEY HASH\n", argv[0]);
 		return 2;
 	}
-	signal(SIGPIPE, SIG_IGN); /* the library leaves SIGPIPE alone */
 
 	/* NULL or "" selects https://www.virustotal.com/vtapi/v2/ */
 	c = vt_client_new(argv[1], getenv("VT_API_BASE_URL"));
@@ -156,14 +154,14 @@ and `vt_errmsg(c)` is a human-readable message such as
 | Code | Meaning |
 |---|---|
 | `VT_OK` | success |
-| `VT_EINVAL` | NULL client, missing required argument, client busy (called from inside one of its own transfer callbacks); nothing was sent |
+| `VT_EINVAL` | NULL client, missing required argument, client busy (called from inside one of its own transfer callbacks; the client's diagnostics are left untouched); nothing was sent |
 | `VT_ENOMEM` | allocation failed, or a JSON response body exceeded 256 MiB |
 | `VT_ECURL` | libcurl setup or transfer failure (connect, TLS, reset, write sink returned short, ...); see `vt_curl_code()` |
 | `VT_EHTTP` | the HTTP status is not accepted by the endpoint; see `vt_http_status()` |
 | `VT_EJSON` | the body is empty or is not a JSON object or array |
 | `VT_EPROTO` | valid JSON that lacks what the operation needs (no `upload_url`, a malformed distribution element) |
 | `VT_ECANCEL` | cancelled by `vt_cancel()` or by the progress callback (`vt_curl_code()` is 42) |
-| `VT_EIO` | a local file to upload could not be read (`vt_curl_code()` is 26) |
+| `VT_EIO` | a local file to upload does not exist or is not readable (`vt_curl_code()` is 26). Anything else is streamed as read, so a directory uploads as an empty file and a read error partway through is not detected |
 
 The `file/*` endpoints and the distribution feeds accept only HTTP 200, and
 downloads accept 200 or 302. The `url/*`, `ip-address/*`, `domain/*`,
@@ -196,12 +194,13 @@ from any thread.
 
 **Callbacks.** All callbacks run synchronously on the calling thread. The
 progress callback and the download sink run inside the transfer: calling
-another operation on the same client from them returns `VT_EINVAL`.
-Distribution callbacks run after the transfer and may use the client; the
-diagnostics read after the distribution call still describe that call, not
-the nested ones. Everything a callback receives is borrowed for the
-duration of the call. Treat the `json_t *item` as read-only, and keep it
-with `json_incref()` or `json_deep_copy()` if you need it later.
+another operation on the same client from them returns `VT_EINVAL` and
+records nothing, so the client's diagnostics keep describing the running
+operation. Distribution callbacks run after the transfer and may use the
+client; the diagnostics read after the distribution call still describe
+that call, not the nested ones. Everything a callback receives is borrowed
+for the duration of the call. Treat the `json_t *item` as read-only, and
+keep it with `json_incref()` or `json_deep_copy()` if you need it later.
 
 **Cancellation and timeouts.** `vt_cancel(c)` asks the operation currently
 running on `c` to stop. It fails with `VT_ECANCEL` at its next progress
@@ -214,11 +213,12 @@ another thread and from a signal handler. The library sets no timeouts. To
 enforce one, return non-zero from the progress callback (installed with
 `vt_client_set_progress()`), which aborts the operation with `VT_ECANCEL`.
 
-**SIGPIPE.** The library installs no signal handlers. Because libcurl runs
-with `CURLOPT_NOSIGNAL`, it does not block `SIGPIPE` either, so a write to
-a connection closed by the peer can raise `SIGPIPE`, which kills the
-process by default. Call `signal(SIGPIPE, SIG_IGN)` at startup, as the
-bundled tools do.
+**SIGPIPE.** The library installs no signal handlers and leaves `SIGPIPE`
+alone. libcurl runs with `CURLOPT_NOSIGNAL` (needed so it never uses
+`SIGALRM`), so instead of ignoring `SIGPIPE` around transfers it sends with
+`MSG_NOSIGNAL` (Linux) or `SO_NOSIGPIPE` (BSD/macOS): a server closing the
+connection does not raise it. Writes made by your own callbacks, such as a
+download sink writing to a pipe, follow your process's `SIGPIPE` setting.
 
 **Base URL.** `vt_client_new(apikey, base_url)` uses `base_url` verbatim as
 the prefix of every endpoint path, so keep the trailing `/`, for example
@@ -227,12 +227,17 @@ the prefix of every endpoint path, so keep the trailing `/`, for example
 does not read the environment for this. Pass `getenv("VT_API_BASE_URL")` if
 you want the same override as the tools. The absolute upload URL returned
 by `file/scan/upload_url` is used as is. Only `http` and `https` URLs are
-followed, including on redirects.
+followed, including on redirects (only `http` if libcurl was built without
+TLS).
 
 **Connections.** Each client keeps one libcurl handle for its whole life, so
 connections, DNS results and TLS sessions are reused across operations.
 Every request starts from reset options, so nothing one request sets leaks
-into the next.
+into the next. The GET lookups share the kept connections, and libcurl
+re-sends a GET once if a reused connection dies before any response byte.
+Every POST (the scans, rescans, `file/report`, `file/search`, `url/scan`,
+`url/report`, `comments/put` and the upload of `vt_file_scan_big()`) uses a
+new connection that is closed afterwards, so a POST is never sent twice.
 
 **Wire format.** Query-string values are percent-encoded like
 `curl_easy_escape()`: `A-Z a-z 0-9 - . _ ~` are kept and every other byte
@@ -371,35 +376,49 @@ Common behaviour:
 
 * Options are parsed with `getopt_long_only()`, so `-name` equals `--name`,
   unique prefixes work and `--opt=value` is accepted.
-* Options take effect from left to right, so give `--apikey` first. An
-  action that needs a key before one was given prints
-  `Must set --apikey first` and exits with status 1.
+* `scan`, `ip`, `domain_report` and `url` act on each option as it is
+  parsed, from left to right, so give `--apikey` first: an action that
+  needs a key before one was given prints `Must set --apikey first` and
+  exits with status 1. `search`, `comments`, `file_dist` and `url_dist` act
+  after all options are parsed, so their order does not matter, and never
+  print that message: without `--apikey` they send an empty key, except
+  that the comments fetch prints `Error: -1` and sends nothing. The
+  exception is `comments --put`, which runs as soon as it is parsed: give
+  `--apikey` and `--resource` before it.
 * Without arguments a tool prints its usage and exits 0. `--help` prints
   the usage too. `--verbose[=X]` only echoes itself (use `VT_DEBUG` for
-  debug output).
+  debug output). Options that a tool accepts but does not handle
+  (`comments --get`, `--before` and `--after` of `file_dist` and
+  `url_dist`) print `?? getopt returned character code 0NNN ??` on stdout,
+  as do unrecognized options (code 077, after getopt's message on stderr).
 * Results are printed as `Response:` followed by the JSON indented by four
-  spaces. A failure prints `Error: N`, where N is the HTTP status for a
-  rejected status, the libcurl error code for a transfer failure (42 means
+  spaces. A failure prints `Error: N` (`search`, `file_dist` and `url_dist`
+  print `returned error N`), where N is the HTTP status for a rejected
+  status, the libcurl error code for a transfer failure (42 means
   cancelled, 26 means an unreadable upload file) or -1 for anything else.
 * The exit status is 0, including after a failed request. It is 1 only for
-  a missing required option or out of memory.
+  a missing required option or out of memory. As in earlier releases, a
+  tool writing to a pipe whose reader has exited dies of `SIGPIPE`, so
+  `file_dist --repeat -1 | head` stops.
 * Environment: `VT_API_BASE_URL`, if set and non-empty, replaces
   `https://www.virustotal.com/vtapi/v2/` (keep the trailing `/`).
   `VT_DEBUG=1` or `2` turns on the library's debug output on stderr.
 
 | Tool | Options | What it does |
 |---|---|---|
-| `scan` | `--apikey KEY`, `--filescan FILE` (repeatable), `--scaninput[=NAME]`, `--rescan HASH`, `--report HASH`, `--clusters YYYY-MM-DD`, `--out FILE`, `--download HASH` | `--filescan` uploads a file, and files of 64 MiB and more go through the large-file upload URL. `--scaninput` uploads up to 32 MiB read from stdin, named NAME (default `filename`). `--report` also prints `Msg:` and `response code:`. `--download` saves to the file given by an earlier `--out`. SIGHUP or SIGTERM cancels the running transfer and every later one. |
-| `search` | `--apikey KEY`, `--query Q`, `--offset X`, `--repeat N` | runs N (default 1) searches, each continuing at the offset the previous page returned, and prints the hashes |
+| `scan` | `--apikey KEY`, `--filescan FILE` (repeatable), `--scaninput[=NAME]`, `--rescan HASH`, `--report HASH`, `--clusters YYYY-MM-DD`, `--out FILE`, `--download HASH` | `--filescan` uploads a file, and files of 64 MiB and more go through the large-file upload URL. `--scaninput` uploads stdin, named NAME (default `filename`). The input must be smaller than 32 MiB (33554432 bytes): larger input prints `read 33554432 bytes` and `Error: -1` and sends nothing (it is not truncated), and empty input prints `ERROR 0` and `Error: -1`. `--report` also prints `Msg:` and `response code:`. `--download` saves to the file given by an earlier `--out`. SIGHUP or SIGTERM cancels the running transfer and every later one. |
+| `search` | `--apikey KEY`, `--query Q`, `--offset X`, `--repeat N` | runs N (default 1) searches, each continuing at the offset the previous page returned, and prints the hashes. After a page without a non-empty `offset`, the next search starts again from the first page. |
 | `ip` | `--apikey KEY`, `--report IP` | IP address report |
 | `domain_report` | `--apikey KEY`, `--report DOMAIN` | domain report |
 | `url` | `--apikey KEY`, `--report-scan`, `--all-info`, `--scan URL`, `--report URL` | `--scan` submits a URL. `--report` fetches a report, adding `scan=1` or `all_info=1` if `--report-scan` or `--all-info` came before it. |
-| `comments` | `--apikey KEY`, `--resource HASH`, `--before TOKEN`, `--put "TEXT"`, `--get` | without `--put`, fetches the comments of the resource after the options are parsed. `--put` posts a comment (the result is not printed). `--get` is accepted for compatibility but has no effect. |
+| `comments` | `--apikey KEY`, `--resource HASH`, `--before TOKEN`, `--put "TEXT"`, `--get` | fetches the comments of the resource after the options are parsed, unless `--put` was given or there are non-option arguments. `--put` posts a comment (the result is not printed). `--get` has no effect besides the `??` line. |
 | `file_dist` | `--apikey KEY`, `--reports 0\|1`, `--limit N`, `--repeat N`, `--sleep S` | fetches N (default 3) pages of the file feed, S (default 3) seconds apart, each continuing after the last timestamp, and stops at the first error |
-| `url_dist` | `--apikey KEY`, `--all-info 0\|1`, `--limit N`, `--repeat N`, `--sleep S` | the same for the URL feed |
+| `url_dist` | `--apikey KEY`, `--allinfo 0\|1`, `--limit N`, `--repeat N`, `--sleep S` | the same for the URL feed |
 
 `file_dist` and `url_dist` accept `--before` and `--after` but do not
-implement them. Examples:
+implement them. Their usage texts advertise `--all-info`, which neither
+tool recognizes: the real options are `--reports N` (`file_dist`) and
+`--allinfo N` (`url_dist`). Examples:
 
 ```sh
 export VT_KEY=...
@@ -408,6 +427,7 @@ cat sample.bin | build/scan --apikey "$VT_KEY" --scaninput=sample.bin
 build/scan --apikey "$VT_KEY" --out sample.bin --download 44d88612fea8a8f36de82e1278abb02f
 build/url --apikey "$VT_KEY" --all-info --report http://example.com/
 build/search --apikey "$VT_KEY" --query 'type:peexe positives:5+' --repeat 3
+build/url_dist --apikey "$VT_KEY" --allinfo 1 --repeat 1
 VT_API_BASE_URL=http://127.0.0.1:8765/vtapi/v2/ VT_DEBUG=1 build/ip --apikey KEY --report 8.8.8.8
 ```
 
@@ -421,11 +441,14 @@ beyond loopback:
   validation. A rejected call must not start a transfer and must reset
   `*out`.
 * **wire** (`tests/wire/`, needs python3) runs the eight tools and
-  `vtprobe` through about 200 scenarios. `vtprobe` is a small driver for
+  `vtprobe` through about 220 scenarios. `vtprobe` is a small driver for
   library behaviour that the tools cannot reach. Each scenario gets its
   own recording mock server on a free loopback port, and the suite checks
-  every request sent (method, path, query, multipart parts and their bytes)
-  and every file created against a model of the correct behaviour. A
+  every request sent (method, path, query, headers, multipart parts and
+  their bytes, and which requests share a connection), every file
+  created, the exit status and stdout against a model of the correct
+  behaviour and golden files. A sanitizer report on stderr fails a
+  scenario too, so the sanitizer build below also catches leaks. A
   mismatch prints a diff. See `tests/wire/README.md` for running single
   scenarios and adding new ones.
 
@@ -543,10 +566,12 @@ with the legacy library:
   errors instead of crashing.
 * **The tools honour `VT_API_BASE_URL`,** and a library client takes its
   base URL as an argument, so both can point at a test server.
-* **Connections are reused** across the operations of one client, and only
-  `http` and `https` are allowed, for redirects and upload URLs too.
+* **Connections are reused** across the GET lookups of one client (a POST
+  always gets a connection of its own, so it is never sent twice), and
+  only `http` and `https` are allowed, for redirects and upload URLs too.
 
 ## License
 
-Apache License 2.0. See `COPYING`; every source file carries the license
-header. Originally developed by VirusTotal S.L. (see `AUTHORS`).
+Apache License 2.0. See `COPYING`; every C source file (`.c` and `.h`)
+carries the license header. Originally developed by VirusTotal S.L. (see
+`AUTHORS`).

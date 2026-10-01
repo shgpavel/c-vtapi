@@ -1,0 +1,7 @@
+ apikey: TESTKEY 
+read 33554431 bytes
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}

@@ -1,0 +1,7 @@
+ apikey: TESTKEY 
+ resource: abc 
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "resource not found"
+}

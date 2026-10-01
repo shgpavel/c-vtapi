@@ -1,0 +1,20 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "m"
+}
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "m"
+}
+Msg: m
+response code: 1
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "m"
+}
+ERROR 0 
+Error: -1 

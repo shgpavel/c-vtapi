@@ -1,0 +1,48 @@
+?? getopt returned character code 0142 ??
+?? getopt returned character code 0146 ??
+
+4 requests remaining
+------------- File 1 ----------------
+URL: https://dl/1 
+timestamp: 1400000001
+name: a.exe
+sha256: aa
+{
+    "link": "https://dl/1",
+    "timestamp": 1400000001,
+    "sha256": "aa",
+    "name": "a.exe",
+    "extra": {
+        "k": 1
+    }
+} 
+
+------------- File 2 ----------------
+URL: https://dl/2 
+timestamp: 1400000000
+name: (null)
+sha256: bb
+{
+    "link": "https://dl/2",
+    "timestamp": 1400000000,
+    "sha256": "bb"
+} 
+
+
+3 requests remaining
+------------- File 3 ----------------
+URL: https://dl/3 
+timestamp: 1400000005
+name: c
+sha256: cc
+{
+    "link": "https://dl/3",
+    "timestamp": 1400000005,
+    "sha256": "cc",
+    "name": "c"
+} 
+
+
+2 requests remaining
+
+1 requests remaining

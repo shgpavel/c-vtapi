@@ -1,0 +1,5 @@
+domain_report < --apikey YOUR_API_KEY >  < --report  example.com --> 
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --report      get report for IP Address
+  --verbose     be verbose
+  --help        print this help message

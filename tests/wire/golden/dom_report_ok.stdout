@@ -1,0 +1,19 @@
+ apikey: TESTKEY 
+Response:
+{
+    "e": {},
+    "a": [],
+    "f": 1.5,
+    "g": 1.0000000000000001e300,
+    "h": 2.8999999999999999,
+    "s": "é/\u0001\"",
+    "t": true,
+    "n": null,
+    "i": -3,
+    "z": {
+        "b": 2,
+        "a": 1
+    },
+    "response_code": 1,
+    "verbose_msg": "Domain found in dataset"
+}

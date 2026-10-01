@@ -1,0 +1,9 @@
+ apikey: TESTKEY 
+?? getopt returned character code 0147 ??
+ resource: abc 
+ before: 20140101120000 
+Response:
+{
+    "response_code": 1,
+    "comments": []
+}

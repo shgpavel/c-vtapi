@@ -1,0 +1,18 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "Domain found"
+}
+domain_report < --apikey YOUR_API_KEY >  < --report  example.com --> 
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --report      get report for IP Address
+  --verbose     be verbose
+  --help        print this help message
+ verbose selected
+ verbose level 2 
+Response:
+{
+    "response_code": -1
+}
+non-option ARGV-elements: stray 

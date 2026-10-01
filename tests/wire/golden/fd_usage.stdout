@@ -1,0 +1,8 @@
+file_dist < --apikey YOUR_API_KEY >  [ --all-info ] [ --sleep X ] [ --repeat X ]
+  --apikey YOUR_API_KEY  Your virus total API key.  This arg 1st 
+  --reports              Get reports
+  --before               before timestamp
+  --after                before timestamp
+  --limit                limit results
+  --repeat               Repeat X times updating the feeed
+  --sleep                Sleep X seconds between requests

@@ -1,0 +1,6 @@
+url < --apikey YOUR_API_KEY >  [ --all-info ] [ --report-scan ]  [ --report URL ] [ --scan URL ]
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --all-info              When doing a report, set allinfo flag
+  --report-scan           When doing a report, set scan flag
+  --scan URL              URL to scan. 
+  --report URL            URL to report.

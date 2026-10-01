@@ -1,0 +1,4 @@
+search < --apikey YOUR_API_KEY >  [ --query 'QUERY STRING' ] [ --offset X ]
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --query             'Query String'
+  --offset             Offset Value

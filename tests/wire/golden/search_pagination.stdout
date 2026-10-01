@@ -1,0 +1,22 @@
+Repeating 8 times
+------------- Result 1 ----------------
+resource: h1 
+
+------------- Result 2 ----------------
+resource: h2 
+
+Repeating 7 times
+------------- Result 3 ----------------
+resource: h3 
+
+------------- Result 4 ----------------
+resource: h4 
+
+Repeating 6 times
+------------- Result 5 ----------------
+resource: h5 
+
+Repeating 5 times
+Repeating 4 times
+Repeating 3 times
+returned error 204

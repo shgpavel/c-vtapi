@@ -1,0 +1,11 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "server error"
+}
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "Invalid URL"
+}

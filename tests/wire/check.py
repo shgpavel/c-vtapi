@@ -3,17 +3,25 @@
 
 For every scenario the recorded requests (results/<id>/requests.jsonl,
 written by the mock) must equal the model (scenarios/<id>/expect.json
-"requests") after normalisation: method, path, decoded query pairs, content
-type, form pairs, multipart parts (name, filename, len + sha256 of the
-content) and any other body (len + sha256).  The order of requests matters;
-the order of query / form pairs and of multipart parts does not.  Request
-headers, chunked transfer encoding and per-part Content-Types are ignored.
+"requests"): method, path, decoded query pairs, request headers (except
+Host and the framing ones; a model request without "headers" means exactly
+"Accept: */*"), content type, form pairs, multipart parts (name, filename,
+Content-Type, len + sha256 of the content) and any other body (len +
+sha256).  Everything is compared in order: requests, query / form pairs and
+multipart parts.  Only chunked transfer encoding is ignored.  A model
+"connections" list (one label per request) must match which requests
+shared a connection: equal labels <=> same connection.
 
 The files the tool created in its working directory (results/<id>/
 files.json, written by run.py) must equal the model's "files" exactly
-(names, len + sha256).  A tool that is missing or hits the scenario timeout
-fails the scenario.  Stdout, stderr and exit status are not compared (exit
-status is shown for information).
+(names, len + sha256).  The exit status must equal the model's "exit"
+(a negative value is death by that signal).  Stdout must equal the golden
+file scenarios/<id>/stdout (from tests/wire/golden/<id>.stdout) after
+dropping the nondeterministic "progress_callback N/M" lines and writing the
+mock's origin http://127.0.0.1:<port> as {MOCK}.  Stderr is not compared,
+but a sanitizer report in it (AddressSanitizer, LeakSanitizer,
+UndefinedBehaviorSanitizer) fails the scenario.  A tool that is missing or
+hits the scenario timeout fails it too.
 
 Standalone use on an existing results tree:
     check.py --scenarios WORK/scenarios --results WORK/results [--only ID...]
@@ -22,8 +30,13 @@ import argparse
 import difflib
 import hashlib
 import json
+import re
 import signal
 from pathlib import Path
+
+PROGRESS = re.compile(rb"^progress_callback -?[0-9]+/-?[0-9]+$")
+SANITIZER_MARKS = (b"ERROR: AddressSanitizer", b"ERROR: LeakSanitizer", b"runtime error:",
+                   b"SUMMARY: UndefinedBehaviorSanitizer")
 
 
 # ------------------------------------------------------------ normalise
@@ -32,13 +45,14 @@ def _blob(d):
 
 
 def _pairs(pairs):
-    return sorted(tuple(p) for p in pairs)
+    return [tuple(p) for p in pairs]
 
 
 def norm_req(req):
     r = dict(req)
-    for k in ("seq", "headers", "chunked"):
+    for k in ("seq", "conn", "chunked"):
         r.pop(k, None)
+    r["headers"] = dict(r.get("headers", {"accept": "*/*"}))
     r["query"] = _pairs(r.get("query", []))
     if "form" in r:
         r["form"] = _pairs(r["form"])
@@ -48,17 +62,39 @@ def norm_req(req):
         parts = []
         for p in r["multipart"]:
             p = dict(p)
-            p.pop("content_type", None)
             p["data"] = _blob(p["data"])
             parts.append(p)
-        parts.sort(key=lambda x: (str(x.get("name", "")), str(x.get("filename", "")),
-                                  json.dumps(x, sort_keys=True)))
         r["multipart"] = parts
     return r
 
 
 def norm_files(files):
     return {k: _blob(v) for k, v in files.items()}
+
+
+def norm_stdout(data: bytes, origin=None, argv0=None, want_argv0=None):
+    """Drops the progress_callback lines, writes the mock origin as {MOCK}
+    and a wrapper's argv[0] (the tool's path) as the scenario's argv0."""
+    if origin:
+        data = data.replace(origin.encode(), b"{MOCK}")
+    if argv0 and want_argv0 and argv0 != want_argv0:
+        data = data.replace(argv0.encode("utf-8", "surrogateescape"), want_argv0.encode())
+    return b"\n".join(line for line in data.split(b"\n") if not PROGRESS.match(line))
+
+
+def result_stdout(sdir: Path, rdir: Path):
+    """The normalised stdout of a run (see norm_stdout)."""
+    sc = json.loads((sdir / "scenario.json").read_text(encoding="utf-8"))
+    so = rdir / "stdout"
+    return norm_stdout(so.read_bytes() if so.exists() else b"", read_opt(rdir / "origin"),
+                       read_opt(rdir / "argv0"), sc.get("argv0", sc["tool"]))
+
+
+def same_grouping(labels, conns):
+    """labels[i] == labels[j] exactly when conns[i] == conns[j]."""
+    return len(labels) == len(conns) and all(
+        (labels[i] == labels[j]) == (conns[i] == conns[j])
+        for i in range(len(labels)) for j in range(len(labels)))
 
 
 # --------------------------------------------------------------- render
@@ -120,6 +156,10 @@ def render_files(files, texts):
     return ["file %s %s" % (k, fmt_blob(v, texts)) for k, v in sorted(files.items())]
 
 
+def text_lines(data: bytes):
+    return data.decode("utf-8", "backslashreplace").split("\n")
+
+
 def udiff(exp_lines, got_lines, what):
     return list(difflib.unified_diff(exp_lines, got_lines, "expected %s (model)" % what,
                                      "recorded %s" % what, n=2, lineterm=""))
@@ -129,7 +169,11 @@ def udiff(exp_lines, got_lines, what):
 def load_jsonl(p: Path):
     if not p.exists():
         return []
-    return [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
+    return [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def read_opt(p: Path):
+    return p.read_text(encoding="utf-8").strip() if p.exists() else None
 
 
 def exit_info(code):
@@ -143,11 +187,12 @@ def exit_info(code):
 
 def check_one(sdir: Path, rdir: Path):
     """Returns (ok, status_suffix, detail_lines)."""
-    model = json.loads((sdir / "expect.json").read_text())
-    sc = json.loads((sdir / "scenario.json").read_text())
-    code = (rdir / "exit").read_text().strip() if (rdir / "exit").exists() else "not-run"
-    secs = (rdir / "time").read_text().strip() if (rdir / "time").exists() else "?"
+    model = json.loads((sdir / "expect.json").read_text(encoding="utf-8"))
+    sc = json.loads((sdir / "scenario.json").read_text(encoding="utf-8"))
+    code = read_opt(rdir / "exit") or "not-run"
+    secs = read_opt(rdir / "time") or "?"
     problems = []
+    ran = code.lstrip("-").isdigit()
     if code == "not-run":
         problems.append("scenario was not run (no results)")
     elif code == "missing-tool":
@@ -156,21 +201,43 @@ def check_one(sdir: Path, rdir: Path):
         problems.append(code)
     elif code == "timeout":
         problems.append("tool did not finish within its %ss timeout" % sc.get("timeout"))
+    elif not ran:
+        problems.append("unexpected exit record %r" % code)
+    elif int(code) != model.get("exit", 0):
+        problems.append("tool ended with %s, expected %s" % (
+            exit_info(code), exit_info(str(model.get("exit", 0)))))
     detail = []
 
     got_raw = load_jsonl(rdir / "requests.jsonl")
     exp = [norm_req(x) for x in model["requests"]]
     got = [norm_req(x) for x in got_raw]
     files_path = rdir / "files.json"
-    got_files_raw = json.loads(files_path.read_text()) if files_path.exists() else {}
+    got_files_raw = json.loads(files_path.read_text(encoding="utf-8")) if files_path.exists() else {}
     texts = _texts(model, got_raw, got_files_raw)
     if exp != got:
         problems.append("requests differ (expected %d, recorded %d)" % (len(exp), len(got)))
         detail += udiff(render_reqs(exp, texts), render_reqs(got, texts), "requests")
+    elif "connections" in model and not same_grouping(model["connections"],
+                                                      [r.get("conn") for r in got_raw]):
+        problems.append("connection reuse differs: model %s, recorded connections %s" % (
+            model["connections"], [r.get("conn") for r in got_raw]))
     ef, gf = norm_files(model.get("files", {})), norm_files(got_files_raw)
     if code != "missing-tool" and ef != gf:
         problems.append("created files differ")
         detail += udiff(render_files(ef, texts), render_files(gf, texts), "files")
+    if ran:
+        golden = sdir / "stdout"
+        got_out = result_stdout(sdir, rdir)
+        if not golden.exists():
+            problems.append("no golden stdout (tests/wire/golden/%s.stdout; run.py --update-golden)"
+                            % sdir.name)
+        elif got_out != golden.read_bytes():
+            problems.append("stdout differs from the golden file")
+            detail += udiff(text_lines(golden.read_bytes()), text_lines(got_out), "stdout")
+        se = rdir / "stderr"
+        marks = [m.decode() for m in SANITIZER_MARKS if se.exists() and m in se.read_bytes()]
+        if marks:
+            problems.append("sanitizer reported errors (%s), see %s" % (", ".join(marks), se))
     status = "(%s, %s, %ss)" % (sc["tool"], exit_info(code), secs)
     if not problems:
         return True, status, []
