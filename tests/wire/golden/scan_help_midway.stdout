@@ -1,0 +1,18 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok",
+    "resource": "R1"
+}
+Msg: ok
+response code: 1
+scan < --apikey YOUR_API_KEY >   [ --filescan FILE1 ] [ --filescan FILE2 ]
+  --apikey <API_KEY>         Your virus total API key. This arg 1st
+  --filescan <FILE>          File to scan, may specify this multiple times
+  --scaninput [filename]     Scan stdinput.  Scan with buffer from ram.
+             example:  cat file.bin | scan --apikey ABC --scaninput   
+  --report <SHA/MD5>          Get a Report on a resource
+  --cluster <YYYY-MM-DD>      Get a Report on a resource
+  --download <hash>           Output file for download
+  --out <file>              Output file for download

@@ -1,0 +1,33 @@
+ apikey: TESTKEY 
+------------- Result 1 ----------------
+{
+    "id": "c1",
+    "label": "l1",
+    "size": 3,
+    "avg_positives": 1
+} 
+
+------------- Result 2 ----------------
+{
+    "id": "c2",
+    "label": "l2",
+    "size": 1,
+    "avg_positives": 0
+} 
+
+------------- Result 3 ----------------
+{
+    "id": "c1",
+    "label": "l1",
+    "size": 3,
+    "avg_positives": 1
+} 
+
+------------- Result 4 ----------------
+{
+    "id": "c2",
+    "label": "l2",
+    "size": 1,
+    "avg_positives": 0
+} 
+

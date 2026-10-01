@@ -1,0 +1,8 @@
+ apikey: TESTKEY 
+ VtFile_scanBigFile ret =0 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "big queued",
+    "scan_id": "big-1"
+}

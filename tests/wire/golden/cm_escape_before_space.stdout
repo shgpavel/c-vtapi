@@ -1,0 +1,8 @@
+ apikey: TESTKEY 
+ resource: r 
+ before: a b&c 
+Response:
+{
+    "response_code": 1,
+    "comments": []
+}

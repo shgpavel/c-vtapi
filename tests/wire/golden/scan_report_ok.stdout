@@ -1,0 +1,17 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "Scan finished, information embedded",
+    "resource": "44d88612fea8a8f36de82e1278abb02f",
+    "positives": 3,
+    "total": 60,
+    "scans": {
+        "AV1": {
+            "detected": true,
+            "result": "EICAR"
+        }
+    }
+}
+Msg: Scan finished, information embedded
+response code: 1

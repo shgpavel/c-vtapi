@@ -1,0 +1,12 @@
+ret=0
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}
+ret=0
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}

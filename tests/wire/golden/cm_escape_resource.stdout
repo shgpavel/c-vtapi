@@ -1,0 +1,8 @@
+ resource: h&x=1 
+ apikey: TESTKEY 
+ verbose selected
+ verbose level 5 
+Response:
+{
+    "response_code": 0
+}

@@ -1,0 +1,13 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "IP address in dataset",
+    "asn": "123",
+    "resolutions": [
+        {
+            "hostname": "a.b",
+            "last_resolved": "2014-01-01 00:00:00"
+        }
+    ]
+}

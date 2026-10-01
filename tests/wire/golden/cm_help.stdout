@@ -1,0 +1,7 @@
+ apikey: TESTKEY 
+comments < --apikey YOUR_API_KEY >  [ --resource ] [ --get ]  [ --put "<comments>" ] < --before YYYYMMDDHHSS >
+  --apikey YOUR_API_KEY   Your virus total API key.  This arg 1st 
+  --resource              Hash your looking for
+  --get                   Get commnets of resource
+  --put 'comments'        'comments' to add to resource
+  --before 'YYYYMMDDHHSS'  datetime token

@@ -1,0 +1,6 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "IP address not in dataset"
+}

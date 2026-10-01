@@ -1,0 +1,8 @@
+ apikey: TESTKEY 
+read 14 bytes
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}
+non-option ARGV-elements: ondisk.txt 

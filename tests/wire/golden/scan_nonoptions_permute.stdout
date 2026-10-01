@@ -1,0 +1,9 @@
+ apikey: TESTKEY 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}
+Msg: ok
+response code: 1
+non-option ARGV-elements: stray1 --notanoption 

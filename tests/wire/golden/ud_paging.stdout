@@ -1,0 +1,20 @@
+?? getopt returned character code 0142 ??
+?? getopt returned character code 0146 ??
+?? getopt returned character code 077 ??
+
+5 requests remaining
+------------- URL 1 ----------------
+URL: http://a/ 
+timestamp: 1500000002
+positives/total = 2 / 60 
+
+------------- URL 2 ----------------
+URL: http://b/ 
+timestamp: 1500000001
+positives/total = 0 / 61 
+
+
+4 requests remaining
+
+3 requests remaining
+returned error 403

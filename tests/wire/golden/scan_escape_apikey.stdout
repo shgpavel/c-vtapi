@@ -1,0 +1,8 @@
+ apikey: K&x=1 
+Response:
+{
+    "response_code": 1,
+    "verbose_msg": "ok"
+}
+Msg: ok
+response code: 1

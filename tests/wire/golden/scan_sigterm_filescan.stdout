@@ -1,0 +1,4 @@
+ apikey: TESTKEY 
+signal caught 15
+Error: 42 
+Error: 42 

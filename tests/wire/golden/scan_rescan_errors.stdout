@@ -1,0 +1,8 @@
+ apikey: TESTKEY 
+Error: 500 
+Error: -1 
+Response:
+{
+    "response_code": 0,
+    "verbose_msg": "not found"
+}

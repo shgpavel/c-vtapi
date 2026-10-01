@@ -1,0 +1,18 @@
+ apikey: TESTKEY 
+Error: 52 
+------------- Result 1 ----------------
+{
+    "id": "c1",
+    "label": "l1",
+    "size": 3,
+    "avg_positives": 1
+} 
+
+------------- Result 2 ----------------
+{
+    "id": "c2",
+    "label": "l2",
+    "size": 1,
+    "avg_positives": 0
+} 
+
